@@ -1,0 +1,15 @@
+.timer { display:grid;grid-template-columns:minmax(190px,1fr) auto auto auto;align-items:center;gap:12px;margin-bottom:12px;padding:12px 14px;border:1px solid var(--border);border-radius:7px;background:#fff;box-shadow:var(--shadow-soft) }
+.timerIdentity { min-width:0;display:flex;align-items:center;gap:9px }
+.timerIcon { width:32px;height:32px;flex:0 0 32px;display:grid;place-items:center;border:1px solid #e5ebdb;border-radius:6px;color:var(--primary);background:var(--primary-soft) }
+.timerIdentity>div { min-width:0;display:grid;gap:3px }
+.timerIdentity strong { color:var(--text);font-size:12px }
+.timerIdentity small { color:var(--text-faint);font-size:10px }
+.timerReadout { color:var(--text);font-family:var(--font-geist-mono),monospace;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums }
+.timerActions { display:flex;align-items:center;gap:5px }
+.timerPolicy { grid-column:1/-1;color:var(--text-faint);font-size:10px }
+.timerError { grid-column:1/-1;color:#923f36;font-size:11px }
+.sessionHistory { grid-column:1/-1;display:grid;gap:7px;padding-top:10px;border-top:1px solid var(--border) }
+.sessionHistory>strong { color:var(--text);font-size:11px }
+.sessionHistoryRow { display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;color:var(--text-soft);font-size:10px;font-variant-numeric:tabular-nums }
+.sessionHistoryRow span:first-child { overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+@media(max-width:720px){.timer{grid-template-columns:minmax(0,1fr) auto}.timerIdentity{grid-column:1}.timerReadout{grid-column:2;grid-row:1}.timerActions{grid-column:1/-1;grid-row:2}.timerPolicy,.timerError{grid-column:1/-1}}

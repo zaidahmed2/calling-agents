@@ -1,0 +1,85 @@
+.page {
+  min-height: 100vh;
+  background: #f7f3ee;
+  padding: 48px 24px;
+}
+
+.panel {
+  max-width: 720px;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #e8dfd3;
+  border-radius: 24px;
+  padding: 28px;
+}
+
+.header {
+  margin-bottom: 20px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  color: #7b726a;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.5rem);
+}
+
+.form {
+  display: grid;
+  gap: 18px;
+}
+
+.form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+  color: #2d2924;
+}
+
+.form input,
+.form textarea,
+.form select,
+.form button {
+  border-radius: 12px;
+  border: 1px solid #e0d7c9;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.form textarea {
+  resize: vertical;
+}
+
+.inlineCheckbox {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+
+.form button {
+  background: #1f2f29;
+  border-color: #1f2f29;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.notice {
+  margin-top: 20px;
+  border: 1px solid #e3d4be;
+  background: #fff7eb;
+  color: #6b4b18;
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+
+.notice strong {
+  display: block;
+  margin-bottom: 6px;
+}

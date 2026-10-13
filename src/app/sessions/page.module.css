@@ -1,0 +1,157 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #f5f7ff, #eef4ff);
+}
+
+.panel {
+  width: min(900px, 100%);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 20px 55px rgba(15, 23, 42, 0.08);
+  padding: 2rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  color: #0f172a;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  padding: 1rem 1.1rem;
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 0.8rem;
+  color: #0f172a;
+  font-size: 1.1rem;
+}
+
+.card ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.5rem;
+  color: #334155;
+}
+
+.card p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.muted {
+  margin-top: 0.85rem !important;
+  color: #475569;
+  font-weight: 600;
+}
+
+.toolbar {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.primaryButton,
+.actionButton {
+  border: none;
+  border-radius: 12px;
+  padding: 0.8rem 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primaryButton {
+  background: #2563eb;
+  color: white;
+}
+
+.secondaryButton {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statusPill.active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+}
+
+.statusPill.paused {
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+}
+
+.statusPill.ended {
+  background: rgba(148, 163, 184, 0.2);
+  color: #334155;
+}
+
+.notice {
+  margin-top: 1.5rem;
+  background: #eff6ff;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  color: #1e3a8a;
+}
+
+.notice strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.notice p {
+  margin: 0;
+}
+
+.sessionList {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}

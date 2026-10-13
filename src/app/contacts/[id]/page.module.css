@@ -1,0 +1,130 @@
+.page {
+  min-height: 100vh;
+  background: #f7f3ee;
+  padding: 48px 24px;
+}
+
+.panel {
+  max-width: 960px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e8dfd3;
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 12px 32px rgba(34, 27, 20, 0.04);
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  color: #7b726a;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+}
+
+.headerRow h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.6rem);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.card {
+  background: #faf7f2;
+  border: 1px solid #efeadf;
+  border-radius: 18px;
+  padding: 20px;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.card ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.card p {
+  margin: 0 0 10px;
+  color: #443d38;
+  line-height: 1.6;
+}
+
+.muted {
+  color: #7b726a;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.primaryButton,
+.secondaryButton {
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.primaryButton {
+  background: #1f2f29;
+  color: white;
+}
+
+.secondaryButton {
+  background: #fff;
+  border-color: #dfd4c6;
+  color: #2d2924;
+}
+
+.statusPill {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.open {
+  background: #eaf7ef;
+  color: #3c7d5a;
+}
+
+.paused {
+  background: #fef5d8;
+  color: #8a6708;
+}
+
+.notice {
+  border: 1px solid #e3d4be;
+  background: #fff7eb;
+  color: #6b4b18;
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+
+.notice strong {
+  display: block;
+  margin-bottom: 6px;
+}

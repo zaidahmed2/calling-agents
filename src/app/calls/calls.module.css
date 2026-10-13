@@ -1,0 +1,40 @@
+.panel { border:1px solid var(--border);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft);overflow:hidden }
+.filters { display:flex;align-items:end;flex-wrap:wrap;gap:9px;padding:13px;border-bottom:1px solid var(--border) }
+.filters label { display:grid;gap:4px;color:var(--text-soft);font-size:8px;font-weight:800 }
+.filters input,.filters select { min-height:32px;padding:0 8px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:#fff;font:inherit;font-size:9px }
+.search { min-width:180px;display:flex!important;align-items:center;gap:6px;padding-left:8px;border:1px solid var(--border);border-radius:6px;color:var(--text-faint) }
+.search input { min-width:130px;border:0;padding-left:0;outline:0 }
+.filters button { min-height:32px;padding:0 12px;border:1px solid var(--primary);border-radius:6px;color:#fff;background:var(--primary);font-size:9px;font-weight:800 }
+.error { margin:12px;padding:10px;border:1px solid #efcccc;border-radius:7px;color:#9b3f3f;background:#fff6f6;font-size:10px }
+.tableScroll { overflow-x:auto }
+.tableScroll table { width:100%;min-width:850px;border-collapse:collapse }
+.tableScroll th,.tableScroll td { padding:10px 11px;border-bottom:1px solid #eff1ed;text-align:left;color:var(--text-soft);font-size:9px;vertical-align:top }
+.tableScroll th { color:var(--text-faint);background:#fbfcfa;font-size:8px;font-weight:850;letter-spacing:.6px }
+.contactName { display:grid;gap:3px;color:var(--text);font-weight:750 }
+.contactName small,.subLine { display:block;margin-top:3px;color:var(--text-faint);font-size:8px;font-weight:500 }
+.note { margin-top:5px;color:var(--primary);font-size:8px }
+.note p { max-width:260px;margin:5px 0;color:var(--text-soft);font-size:9px;line-height:1.5;white-space:pre-wrap }
+.paginationLinks { display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 13px;color:var(--text-soft);font-size:9px }
+.paginationLinks a { padding:6px 9px;border:1px solid var(--border);border-radius:6px;color:var(--primary);font-weight:750 }
+.paginationLinks a[aria-disabled="true"] { pointer-events:none;opacity:.4 }
+.detailLink { width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--border);border-radius:6px;color:var(--primary) }
+.detailLink:hover { border-color:#cad5b9;background:var(--primary-soft) }
+.backLink { display:inline-flex;align-items:center;gap:6px;margin:0 0 12px;color:var(--primary);font-size:12px;font-weight:700 }
+.callDetail { margin-bottom:12px;padding:16px;border:1px solid var(--border);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft) }
+.callDetail>header { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px }
+.callDetail h2 { margin:3px 0;color:var(--text);font-size:17px }
+.detailEyebrow { color:var(--text-faint);font-size:9px;font-weight:800;letter-spacing:.7px }
+.detailId { color:var(--text-faint);font-family:var(--font-geist-mono),monospace;font-size:10px;overflow-wrap:anywhere }
+.detailGrid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;border-top:1px solid var(--border);padding-top:14px }
+.detailGrid>div { min-width:0;display:grid;gap:6px }
+.detailGrid span { display:flex;align-items:center;gap:5px;color:var(--text-soft);font-size:11px }
+.detailGrid strong { color:var(--text);font-size:12px;overflow-wrap:anywhere }
+.dispositionList { display:grid }
+.dispositionList article { display:grid;gap:8px;padding:12px 0;border-top:1px solid var(--border) }
+.dispositionList article>div { display:flex;justify-content:space-between;gap:12px }
+.dispositionList strong { color:var(--text);font-size:12px }
+.dispositionList time,.dispositionList small { color:var(--text-faint);font-size:10px }
+.dispositionList p { color:var(--text-soft);font-size:12px;line-height:1.5;white-space:pre-wrap }
+@media(max-width:720px){.detailGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:440px){.detailGrid{grid-template-columns:1fr}}
+@media (max-width:700px) { .filters { align-items:stretch }.filters label { flex:1;min-width:110px }.search { flex:1;min-width:100% }.filters button { align-self:end } }
