@@ -4,7 +4,6 @@ import { Activity, ArrowDownRight, ArrowUpRight, AudioLines, CalendarClock, Cont
 
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { EmptyState, StatusBadge } from "@/components/ui";
-import { listGhlContactsPage } from "@/lib/ghl";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/dashboard/page.module.css";
@@ -16,6 +15,7 @@ type CallRow = { id: string; agent_id: string; ghl_contact_id: string; current_s
 type CallbackRow = { id: string; contact_id: string; agent_id: string; due_at: string; status: string };
 type SessionRow = { agent_id: string; state: string; started_at: string };
 type ActivityRow = { id: string; event_type: string; created_at: string };
+type ContactSummaryRow = { status: string; assigned_agent_id: string | null };
 
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ range?: string }> }) {
@@ -39,11 +39,13 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   let callStates: Record<string, number | null> = { answered: null, failed: null };
   let callbacksDueCount: number | null = null;
   let callbacksOverdueCount: number | null = null;
-  let contactsPage: Awaited<ReturnType<typeof listGhlContactsPage>> | null = null;
+  let contactsAvailable = false;
+  let contactsTotal: number | null = null;
+  let contactRows: ContactSummaryRow[] = [];
 
   try {
     const supabase = await createSupabaseServerClient();
-    const [agentResult, sessionResult, recentCallsResult, callbackResult, activityResult, allCallsCount, answeredCount, failedCount, dueCount, overdueCount] = await Promise.all([
+    const [agentResult, sessionResult, recentCallsResult, callbackResult, activityResult, allCallsCount, answeredCount, failedCount, dueCount, overdueCount, contactResult] = await Promise.all([
       supabase.from("profiles").select("id, normalized_email, ghl_user_id").eq("app_role", "agent").eq("is_active", true).order("normalized_email"),
       supabase.from("work_sessions").select("agent_id, state, started_at").in("state", ["active", "paused"]),
       supabase.from("calls").select("id, agent_id, ghl_contact_id, current_state, requested_at, answered_at, verified_duration_seconds, outcome").gte("requested_at", since.toISOString()).order("requested_at", { ascending: false }).limit(1000),
@@ -54,6 +56,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       supabase.from("calls").select("id", { count: "exact", head: true }).eq("current_state", "failed"),
       supabase.from("callbacks").select("id", { count: "exact", head: true }).in("status", ["scheduled", "due", "missed"]).lte("due_at", now.toISOString()),
       supabase.from("callbacks").select("id", { count: "exact", head: true }).in("status", ["scheduled", "due", "missed"]).lt("due_at", now.toISOString()),
+      supabase.from("contacts").select("status, assigned_agent_id", { count: "exact" }).eq("company_id", session.companyId).order("updated_at", { ascending: false }).limit(1000),
     ]);
     const results = [agentResult, sessionResult, recentCallsResult, callbackResult, activityResult, allCallsCount, answeredCount, failedCount, dueCount, overdueCount];
     available = !results.some((result) => result.error);
@@ -68,16 +71,19 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       callbacksDueCount = dueCount.count;
       callbacksOverdueCount = overdueCount.count;
     }
+    if (!contactResult.error) {
+      contactsAvailable = true;
+      contactsTotal = contactResult.count;
+      contactRows = (contactResult.data ?? []) as ContactSummaryRow[];
+    }
   } catch {
     available = false;
   }
 
-  contactsPage = await listGhlContactsPage({ limit: 100 });
-  const contacts = contactsPage.blocked ? [] : contactsPage.contacts;
   const contactCounts = {
-    open: contacts.filter((contact) => contact.isOpen).length,
-    assigned: contacts.filter((contact) => Boolean(contact.assignedUserId)).length,
-    unassigned: contacts.filter((contact) => !contact.assignedUserId).length,
+    open: contactRows.filter((contact) => contact.status.trim().toLowerCase() === "open").length,
+    assigned: contactRows.filter((contact) => Boolean(contact.assigned_agent_id)).length,
+    unassigned: contactRows.filter((contact) => !contact.assigned_agent_id).length,
   };
   const openCallbacks = callbacks.filter((item) => item.status === "scheduled" || item.status === "due");
   const overdueCallbacks = openCallbacks.filter((item) => new Date(item.due_at).getTime() < now.getTime());
@@ -103,10 +109,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   })).sort((left, right) => right.calls - left.calls);
 
   const stats = [
-    { label: "Total contacts", value: contactsPage.blocked || contactsPage.total === null ? "—" : contactsPage.total.toLocaleString(), note: contactsPage.total === null ? "Total not returned by source" : "GHL-reported total", icon: ContactRound, tone: "green" },
-    { label: "Open contacts", value: contactsPage.blocked ? "—" : contactCounts.open, note: "Loaded GHL page only", icon: Activity, tone: "lime" },
-    { label: "Assigned contacts", value: contactsPage.blocked ? "—" : contactCounts.assigned, note: "Loaded GHL page only", icon: UserRoundCheck, tone: "slate" },
-    { label: "Unassigned contacts", value: contactsPage.blocked ? "—" : contactCounts.unassigned, note: "Loaded GHL page only", icon: UserRoundX, tone: "amber" },
+    { label: "Total contacts", value: !contactsAvailable || contactsTotal === null ? "—" : contactsTotal.toLocaleString(), note: "Company CRM", icon: ContactRound, tone: "green" },
+    { label: "Open contacts", value: contactsAvailable ? contactCounts.open : "—", note: "Latest 1,000 contacts", icon: Activity, tone: "lime" },
+    { label: "Assigned contacts", value: contactsAvailable ? contactCounts.assigned : "—", note: "Latest 1,000 contacts", icon: UserRoundCheck, tone: "slate" },
+    { label: "Unassigned contacts", value: contactsAvailable ? contactCounts.unassigned : "—", note: "Latest 1,000 contacts", icon: UserRoundX, tone: "amber" },
     { label: "Calls", value: available ? callsTotal?.toLocaleString() ?? "—" : "—", note: "All saved call records", icon: AudioLines, tone: "green" },
     { label: "Answered", value: available ? callStates.answered?.toLocaleString() ?? "—" : "—", note: "Answer timestamp recorded", icon: ArrowUpRight, tone: "lime" },
     { label: "Failed", value: available ? callStates.failed?.toLocaleString() ?? "—" : "—", note: "Saved failed calls", icon: ArrowDownRight, tone: "amber" },
@@ -115,8 +121,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   return (
     <WorkspaceShell session={session} section="overview" title="Overview" subtitle="A grounded view of contacts, calls and team activity.">
-      {!available ? <div className={styles.dataAlert} role="alert"><strong>Call analytics unavailable</strong><span>Check the database connection and applied migrations. GHL contacts are reported separately.</span></div> : null}
-      {contactsPage.blocked ? <div className={styles.dataAlert} role="status"><strong>Contact summary unavailable</strong><span>{contactsPage.blocker}</span></div> : null}
+      {!available ? <div className={styles.dataAlert} role="alert"><strong>Call analytics unavailable</strong><span>Check the database connection and applied migrations.</span></div> : null}
+      {!contactsAvailable ? <div className={styles.dataAlert} role="status"><strong>Contact summary unavailable</strong><span>Check company CRM access and the applied migrations.</span></div> : null}
 
       <div className={styles.rangeRow}><span>Performance window</span><nav aria-label="Performance date range">{[7, 30, 90].map((days) => <Link key={days} href={`/dashboard?range=${days}`} className={rangeDays === days ? styles.rangeActive : styles.rangeLink}>{days} days</Link>)}</nav></div>
 
@@ -142,7 +148,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       <div className={styles.analyticsGrid}>
         <section className={styles.panel}>
           <header className={styles.panelHeader}><div><span className={styles.eyebrow}>CONTACT PIPELINE</span><h2>Status distribution</h2></div><Link href="/contacts">View contacts <ArrowUpRight size={14} /></Link></header>
-          {!contactsPage.blocked && contacts.length ? <div className={styles.distribution}><div><StatusBadge tone="success">Open</StatusBadge><b>{contactCounts.open}</b><small>Loaded page</small></div><div><StatusBadge tone="neutral">Other status</StatusBadge><b>{contacts.filter((contact) => contact.status && !contact.isOpen).length}</b><small>Loaded page</small></div><div><StatusBadge tone="warning">Unknown</StatusBadge><b>{contacts.filter((contact) => !contact.status).length}</b><small>Not set in source</small></div></div> : <EmptyState title={contactsPage.blocked ? "Contacts unavailable" : "No contacts returned"} detail="No status chart is fabricated when contact data is missing." icon={<ContactRound size={17} />} />}
+          {contactsAvailable && contactRows.length ? <div className={styles.distribution}><div><StatusBadge tone="success">Open</StatusBadge><b>{contactCounts.open}</b><small>Latest 1,000</small></div><div><StatusBadge tone="neutral">Other status</StatusBadge><b>{contactRows.filter((contact) => contact.status.trim().toLowerCase() !== "open").length}</b><small>Latest 1,000</small></div><div><StatusBadge tone="warning">Unknown</StatusBadge><b>0</b><small>Status defaults to open</small></div></div> : <EmptyState title={contactsAvailable ? "No contacts returned" : "Contacts unavailable"} detail="Contact distribution appears when company CRM records are available." icon={<ContactRound size={17} />} />}
         </section>
         <section className={styles.panel}>
           <header className={styles.panelHeader}><div><span className={styles.eyebrow}>RECENT RECORDS</span><h2>Latest calls</h2></div><Link href="/calls">Call history <ArrowUpRight size={14} /></Link></header>

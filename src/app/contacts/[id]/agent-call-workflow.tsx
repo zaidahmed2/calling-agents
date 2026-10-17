@@ -21,7 +21,7 @@ export async function startManualCall(contactId: string): Promise<InitialManualC
   });
   const result = await response.json() as { call?: StartedCall; telephony?: TelephonyConfig; error?: string };
   if (!response.ok || !result.call || !result.telephony) {
-    throw new Error(response.status === 503 ? "Calling is not ready yet. Contact your administrator." : result.error ?? "Call could not be started.");
+    throw new Error(result.error ?? "Calling is not configured for this company yet. Contact your administrator.");
   }
   return { call: result.call, telephony: result.telephony };
 }

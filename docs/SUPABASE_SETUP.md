@@ -8,12 +8,14 @@ The repository ignores `.env.local`. It already exists in this workspace; keep i
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_SERVICE_ROLE_KEY
+INTEGRATION_ENCRYPTION_KEY=BASE64_OR_HEX_32_BYTE_KEY
 OTP_RATE_LIMIT_PER_MINUTE=5
 ```
 
-The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name is also accepted. The manual agent-call workflow additionally needs `SUPABASE_SERVICE_ROLE_KEY` configured server-side. It is used only after the authenticated server route validates the agent and current GHL assignment. Do not put it, the database password, JWT secret, or provider secrets in a `NEXT_PUBLIC_` variable or browser code.
+The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name is also accepted. The service role key is used only by authenticated server routes for invitations and protected company operations. Do not put it, the database password, JWT secret, integration encryption key, or provider secrets in a `NEXT_PUBLIC_` variable or browser code.
 
-GHL/Crazytel settings are read server-side from the variable names in `.env.example`. Leave them unset until their account configuration and API contracts have been verified. The app intentionally reports provider operations as blocked without verified credentials/configuration; adding a key alone does not verify the integration.
+GHL and Crazytel account settings are configured separately by each company and encrypted using `INTEGRATION_ENCRYPTION_KEY`. Generate a 32-byte key, encode it as Base64 or 64 hexadecimal characters, and store it only in the server secret manager. Back it up securely: provider credentials cannot be recovered if the key is lost.
 
 ## Apply migrations
 
@@ -26,6 +28,20 @@ npx supabase db push
 ```
 
 The migrations create the application tables and then harden RLS policies. Review the SQL in `supabase/migrations` before applying it to a non-development project. No customer data or demo fixture rows are included.
+
+Migration `20261016_000015_multitenant_foundation.sql` adds a `Legacy Workspace`, backfills existing profiles and operational rows into it, preserves existing external GHL IDs/history, and adds company memberships, internal contacts, integrations, mappings, and company-aware authorization. New internal contacts start empty; import them from GHL only if that company configures GHL. This migration has not been applied by the app.
+
+After migrations, designate the platform owner using an existing active admin profile:
+
+```sql
+update public.profiles
+set platform_role = 'super_admin'
+where normalized_email = lower('REPLACE_WITH_PLATFORM_OWNER_EMAIL')
+  and app_role = 'admin'
+  and is_active = true;
+```
+
+Confirm exactly the intended row was updated. Never expose public signup for this role or allow users to promote themselves. Sign in at `/`; the Super Admin is routed to `/super-admin`.
 
 New migration files are append-only. If the work-session RPC currently errors when pausing/ending or does not auto-pause idle sessions, apply the follow-up migration `20261010_000005_fix_work_session_rpc.sql` with `npx supabase db push`. Do not edit or rerun an already-applied migration file; Supabase applies only pending migration versions.
 
@@ -62,19 +78,21 @@ set normalized_email = excluded.normalized_email,
     is_active = excluded.is_active;
 ```
 
-Use `agent` instead of `admin` for an agent account. Once the actual GHL user identity has been verified, set `ghl_user_id` to that account's real GHL user ID. Until then agent queue reads remain blocked. Start by provisioning one owner-controlled admin, verify login and role routing, then add test agents.
+After the multi-company migration, manually provisioned profiles also require a `company_memberships` row for their company. Existing profiles have already been backfilled to `legacy-workspace`. Prefer the authenticated platform/company admin invitation flows, which create the Auth user, profile, and membership together. A GHL mapping is optional; internal contact workflows do not require it.
 
 ## Verify access
 
-- An active profile with role `admin` goes to `/dashboard`.
-- An active profile with role `agent` goes to `/open-queue`.
+- An active platform Super Admin goes to `/super-admin`.
+- An active company admin goes to `/dashboard` for their company.
+- An active company agent goes to `/open-queue` for assigned internal contacts.
 - Authenticated Supabase users without an active profile are signed out and denied application access.
-- Agent queries are constrained by RLS to their own records and contacts assigned to their mapped GHL user ID with Open status.
+- Tenant tables are constrained by company-aware RLS; agents see only their own company contacts assigned to their profile and marked Open.
 - Admin dashboard numbers are database counts. Empty tables show zero or empty states; no demo rows are seeded.
-- GHL/Crazytel call actions stay blocked until their actual account requirements and contracts are verified.
+- GHL synchronization is manual and disabled until enabled in company settings. Automatic bidirectional sync is not enabled.
+- Crazytel calls require company-specific Hybrid SIP configuration; browser SIP credentials are necessarily delivered to the authenticated agent session.
 
 ## Current limitations
 
 - Supabase project migrations and live email delivery cannot be run from this workspace without your project reference and authorization. Apply them to your development project, then verify the login flow.
-- Initial role provisioning is deliberately an owner-controlled SQL/dashboard task; there is no public signup, self-serve role assignment, or unprotected admin creation route.
+- The first platform Super Admin must be designated through an owner-controlled SQL update. Company and agent invitations require valid server-side Supabase service credentials and configured email delivery.
 - The current OTP rate limiter is process-local. Use a shared store or edge/platform rate limiting before multi-instance production deployment.

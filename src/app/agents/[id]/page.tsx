@@ -4,8 +4,7 @@ import { ArrowLeft, ArrowUpRight, AudioLines, BadgeCheck, CalendarClock, Contact
 
 import { EmptyState } from "@/components/ui";
 import { WorkspaceShell } from "@/components/workspace-shell";
-import { getGhlContact } from "@/lib/ghl";
-import { listOpenContactsForAgent } from "@/lib/ghl";
+import { getCompanyContact, listContactsForAgent } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/agents/[id]/agent-detail.module.css";
@@ -13,28 +12,10 @@ import styles from "@/app/agents/[id]/agent-detail.module.css";
 export const dynamic = "force-dynamic";
 
 type Profile = { id: string; normalized_email: string; ghl_user_id: string | null; is_active: boolean };
-type CallRow = { id: string; ghl_contact_id: string; current_state: string; requested_at: string; ended_at: string | null; verified_duration_seconds: number | null; manual_duration_seconds: number | null; provider_call_id: string | null; call_source: string; outcome: string | null };
+type CallRow = { id: string; ghl_contact_id: string; internal_contact_id: string | null; current_state: string; requested_at: string; ended_at: string | null; verified_duration_seconds: number | null; manual_duration_seconds: number | null; provider_call_id: string | null; call_source: string; outcome: string | null };
 type Disposition = { call_id: string; outcome: string; note: string | null; qualified: boolean; callback_at: string | null; created_at: string };
 type SessionRow = { id: string; started_at: string; ended_at: string | null; state: string; state_changed_at: string | null; last_activity_at: string | null; active_seconds: number; idle_seconds: number; reason: string | null };
-type Assignment = { id: string; ghl_contact_id: string; from_ghl_user_id: string | null; to_ghl_user_id: string | null; created_at: string; actor_id: string };
-type ContactCursor = { startAfter: string; startAfterId: string } | null;
-
-function readContactHistory(value: string | undefined): ContactCursor[] {
-  if (!value || value.length > 6000) return [];
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.slice(0, 40).map((item): ContactCursor => {
-      if (!item || typeof item !== "object") return null;
-      const record = item as Record<string, unknown>;
-      return typeof record.startAfter === "string" && typeof record.startAfterId === "string"
-        ? { startAfter: record.startAfter.slice(0, 200), startAfterId: record.startAfterId.slice(0, 200) }
-        : null;
-    });
-  } catch {
-    return [];
-  }
-}
+type Assignment = { id: string; internal_contact_id: string | null; from_agent_id: string | null; to_agent_id: string | null; created_at: string; actor_id: string };
 
 function duration(seconds: number | null) {
   if (seconds === null) return "Not recorded";
@@ -66,38 +47,37 @@ function getSessionTime(item: SessionRow, now: number) {
   return { activeSeconds, idleSeconds, idlePausePending };
 }
 
-export default async function AgentDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<{ page?: string; sessionsPage?: string; assignmentsPage?: string; contactsAfter?: string; contactsAfterId?: string; contactsHistory?: string }> }) {
+export default async function AgentDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<{ page?: string; sessionsPage?: string; assignmentsPage?: string; contactsAfter?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "admin") redirect("/open-queue");
   const { id } = await params;
+  if (!session.companyId) redirect("/login?access=denied");
   const query = searchParams ? await searchParams : {};
   const page = Math.max(1, Number(query.page) || 1);
   const sessionsPage = Math.max(1, Number(query.sessionsPage) || 1);
   const assignmentsPage = Math.max(1, Number(query.assignmentsPage) || 1);
-  const contactsHistory = readContactHistory(query.contactsHistory);
-  const contactsCursor: ContactCursor = query.contactsAfter && query.contactsAfterId
-    ? { startAfter: query.contactsAfter.slice(0, 200), startAfterId: query.contactsAfterId.slice(0, 200) }
-    : null;
+  const contactsOffset = Math.max(0, Number(query.contactsAfter) || 0);
   const pageSize = 25;
 
   const supabase = await createSupabaseServerClient();
+  const { data: membership } = await supabase.from("company_memberships").select("profile_id")
+    .eq("profile_id", id).eq("company_id", session.companyId).eq("role", "agent").eq("is_active", true).maybeSingle();
+  if (!membership) notFound();
   const { data: profileData, error: profileError } = await supabase.from("profiles")
     .select("id, normalized_email, ghl_user_id, is_active")
     .eq("id", id).eq("app_role", "agent").maybeSingle();
-  if (profileError) return <WorkspaceShell session={session} section="sessions" title="Agent details"><div className={styles.error}>Agent profile could not be loaded.</div></WorkspaceShell>;
+  if (profileError) return <WorkspaceShell session={session} section="agents" title="Agent details"><div className={styles.error}>Agent profile could not be loaded.</div></WorkspaceShell>;
   if (!profileData) notFound();
   const profile = profileData as Profile;
 
   const [callResult, sessionResult, assignmentCountResult, assignmentResult, callbackCountResult, assignedContactsResult] = await Promise.all([
-    supabase.from("calls").select("id, ghl_contact_id, current_state, requested_at, ended_at, verified_duration_seconds, manual_duration_seconds, provider_call_id, call_source, outcome", { count: "exact" }).eq("agent_id", id).order("requested_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1),
-    supabase.from("work_sessions").select("id, started_at, ended_at, state, state_changed_at, last_activity_at, active_seconds, idle_seconds, reason", { count: "exact" }).eq("agent_id", id).order("started_at", { ascending: false }).range((sessionsPage - 1) * pageSize, sessionsPage * pageSize - 1),
-    supabase.from("contact_assignment_events").select("id", { count: "exact", head: true }).eq("to_ghl_user_id", profile.ghl_user_id),
-    supabase.from("contact_assignment_events").select("id, ghl_contact_id, from_ghl_user_id, to_ghl_user_id, created_at, actor_id", { count: "exact" }).or(`from_ghl_user_id.eq.${profile.ghl_user_id ?? "__none__"},to_ghl_user_id.eq.${profile.ghl_user_id ?? "__none__"}`).order("created_at", { ascending: false }).range((assignmentsPage - 1) * pageSize, assignmentsPage * pageSize - 1),
-    supabase.from("callbacks").select("id", { count: "exact", head: true }).eq("agent_id", id),
-    profile.ghl_user_id
-      ? listOpenContactsForAgent({ assignedUserId: profile.ghl_user_id, limit: 100, cursor: contactsCursor })
-      : Promise.resolve(null),
+    supabase.from("calls").select("id, ghl_contact_id, internal_contact_id, current_state, requested_at, ended_at, verified_duration_seconds, manual_duration_seconds, provider_call_id, call_source, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("agent_id", id).order("requested_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1),
+    supabase.from("work_sessions").select("id, started_at, ended_at, state, state_changed_at, last_activity_at, active_seconds, idle_seconds, reason", { count: "exact" }).eq("company_id", session.companyId).eq("agent_id", id).order("started_at", { ascending: false }).range((sessionsPage - 1) * pageSize, sessionsPage * pageSize - 1),
+    supabase.from("contact_assignment_events").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("to_agent_id", id),
+    supabase.from("contact_assignment_events").select("id, internal_contact_id, from_agent_id, to_agent_id, created_at, actor_id", { count: "exact" }).eq("company_id", session.companyId).or(`from_agent_id.eq.${id},to_agent_id.eq.${id}`).order("created_at", { ascending: false }).range((assignmentsPage - 1) * pageSize, assignmentsPage * pageSize - 1),
+    supabase.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("agent_id", id),
+    listContactsForAgent({ companyId: session.companyId, agentId: id, limit: 100, offset: contactsOffset }),
   ]);
 
   const calls = (callResult.data ?? []) as CallRow[];
@@ -106,7 +86,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
   const callIds = calls.map((call) => call.id);
   const [dispositionResult, contactRowsResult] = await Promise.all([
     callIds.length ? supabase.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").in("call_id", callIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    Promise.all([...new Set([...calls.map((call) => call.ghl_contact_id), ...assignments.map((event) => event.ghl_contact_id)])].map(async (contactId) => [contactId, await getGhlContact(contactId)] as const)),
+    Promise.all([...new Set([...calls.flatMap((call) => call.internal_contact_id ? [call.internal_contact_id] : []), ...assignments.flatMap((event) => event.internal_contact_id ? [event.internal_contact_id] : [])])].map(async (contactId) => [contactId, session.companyId ? await getCompanyContact(contactId, session.companyId) : null] as const)),
   ]);
   const dispositions = (dispositionResult.data ?? []) as Disposition[];
   const contactNames = new Map(contactRowsResult.map(([contactId, contact]) => [contactId, contact?.name ?? `Contact ${contactId}`]));
@@ -115,7 +95,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
   const { data: profiles } = await supabase.from("profiles").select("id, normalized_email, ghl_user_id");
   for (const item of profiles ?? []) {
     appNames.set(item.id, item.normalized_email);
-    if (item.ghl_user_id) agentNames.set(item.ghl_user_id, item.normalized_email);
+    agentNames.set(item.id, item.normalized_email);
   }
   const latestDisposition = new Map<string, Disposition>();
   for (const disposition of dispositions) if (!latestDisposition.has(disposition.call_id)) latestDisposition.set(disposition.call_id, disposition);
@@ -140,24 +120,11 @@ export default async function AgentDetailPage({ params, searchParams }: { params
     params.set("assignmentsPage", String(kind === "assignments" ? nextPage : assignmentsPage));
     return `/agents/${encodeURIComponent(id)}?${params.toString()}`;
   };
-  const contactNextCursor: ContactCursor = assignedContactsResult && !assignedContactsResult.blocked && assignedContactsResult.nextCursor?.startAfter && assignedContactsResult.nextCursor.startAfterId
-    ? { startAfter: assignedContactsResult.nextCursor.startAfter, startAfterId: assignedContactsResult.nextCursor.startAfterId }
-    : null;
-  const contactPageHref = (cursor: ContactCursor, history: ContactCursor[]) => {
-    const params = new URLSearchParams();
-    params.set("page", String(page));
-    params.set("sessionsPage", String(sessionsPage));
-    params.set("assignmentsPage", String(assignmentsPage));
-    if (cursor) {
-      params.set("contactsAfter", cursor.startAfter);
-      params.set("contactsAfterId", cursor.startAfterId);
-    }
-    if (history.length) params.set("contactsHistory", JSON.stringify(history));
-    return `/agents/${encodeURIComponent(id)}?${params.toString()}`;
-  };
+  const contactNextOffset = assignedContactsResult.nextOffset;
+  const contactPageHref = (offset: number) => `/agents/${encodeURIComponent(id)}?page=${page}&sessionsPage=${sessionsPage}&assignmentsPage=${assignmentsPage}&contactsAfter=${offset}`;
   const toAgentLabel = (userId: string | null) => userId ? agentNames.get(userId) ?? "Other agent" : "Unassigned";
 
-  return <WorkspaceShell session={session} section="sessions" title="Agent activity" subtitle="Performance, current queue, call outcomes and work sessions.">
+  return <WorkspaceShell session={session} section="agents" title="Agent activity" subtitle="Performance, current queue, call outcomes and work sessions.">
     <div className={styles.pageIntro}><Link className={styles.backLink} href="/dashboard"><ArrowLeft size={15} /> Overview</Link><span>AGENT REPORT <i /> LIVE DATA</span></div>
     <section className={styles.profileHero}>
       <div className={styles.heroIdentity}>
@@ -166,12 +133,12 @@ export default async function AgentDetailPage({ params, searchParams }: { params
       </div>
       <div className={styles.heroDetails}>
         <span className={profile.is_active ? styles.activePill : styles.inactivePill}><i />{profile.is_active ? "Active agent" : "Inactive agent"}</span>
-        <span className={profile.ghl_user_id ? styles.mappingPill : styles.unmappedPill}><BadgeCheck size={13} />{profile.ghl_user_id ? "GHL linked" : "GHL not linked"}</span>
+        <span className={profile.is_active ? styles.mappingPill : styles.unmappedPill}><BadgeCheck size={13} />{profile.is_active ? "Company member" : "Inactive"}</span>
       </div>
     </section>
     <div className={styles.metrics}>
       <article className={styles.metricCalls}><i><AudioLines size={17} /></i><span>Saved calls</span><strong>{callCount}</strong><small>All recorded call entries</small></article>
-      <article className={styles.metricQueue}><i><ContactRound size={17} /></i><span>Current open queue</span><strong>{assignedContactsResult && !assignedContactsResult.blocked ? assignedContactsResult.contacts.length : "—"}</strong><small>{assignedContactsResult && !assignedContactsResult.blocked ? "Contacts on this GHL page" : "GHL queue unavailable"}</small></article>
+      <article className={styles.metricQueue}><i><ContactRound size={17} /></i><span>Current open queue</span><strong>{assignedContactsResult.contacts.length}</strong><small>Internal company contacts</small></article>
       <article className={styles.metricTime}><i><Timer size={17} /></i><span>Active time shown</span><strong>{Math.floor(activeSeconds / 3600)}h {Math.floor(activeSeconds % 3600 / 60)}m</strong><small>Across {sessions.length} sessions on this page</small></article>
       <article className={styles.metricCallbacks}><i><CalendarClock size={17} /></i><span>Callbacks</span><strong>{callbackCount}</strong><small>Scheduled for this agent</small></article>
     </div>
@@ -188,13 +155,13 @@ export default async function AgentDetailPage({ params, searchParams }: { params
     </section>
 
     <section className={styles.panel}>
-      <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>02 / LIVE GHL QUEUE</span><h2>Current assigned contacts</h2></div><span className={styles.sectionCount}>{assignedContactsResult && !assignedContactsResult.blocked ? `${assignedContactsResult.contacts.length} on this page` : "Current list unavailable"}</span></header>
-      {!profile.ghl_user_id ? <div className={styles.notice}>This agent profile is not linked to a GHL user, so its current contact queue cannot be matched.</div> : assignedContactsResult?.blocked ? <div className={styles.error}>Current assigned contacts could not be loaded from GHL. {assignedContactsResult.blocker}</div> : assignedContactsResult?.contacts.length ? <><div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>SUBURB</th><th>PHONE</th><th>STATUS</th><th /></tr></thead><tbody>{assignedContactsResult.contacts.map((contact) => <tr key={contact.id}><td>{contact.name}</td><td>{contact.suburb ?? "—"}</td><td>{contact.maskedPhone}</td><td>{contact.status}</td><td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} aria-label={`Open ${contact.name}`}><ArrowUpRight size={15} /></Link></td></tr>)}</tbody></table></div><nav className={styles.pagination}><span>GHL contact page {contactsHistory.length + 1}</span><div>{contactsHistory.length ? <Link href={contactPageHref(contactsHistory.at(-1) ?? null, contactsHistory.slice(0, -1))}>Previous contacts</Link> : null}{contactNextCursor ? <Link href={contactPageHref(contactNextCursor, [...contactsHistory, contactsCursor])}>Next contacts</Link> : null}</div></nav></> : <><EmptyState title="No current Open contacts" detail="Contacts appear here when GHL assigns them to this agent and their status matches the agent queue." icon={<ContactRound size={18} />} />{contactNextCursor ? <nav className={styles.pagination}><span>GHL contact page {contactsHistory.length + 1}</span><div><Link href={contactPageHref(contactNextCursor, [...contactsHistory, contactsCursor])}>Next contacts</Link></div></nav> : null}</>}
+      <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>02 / COMPANY CRM</span><h2>Current assigned contacts</h2></div><span className={styles.sectionCount}>{assignedContactsResult.contacts.length} on this page</span></header>
+      {assignedContactsResult.contacts.length ? <><div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>SUBURB</th><th>PHONE</th><th>STATUS</th><th /></tr></thead><tbody>{assignedContactsResult.contacts.map((contact) => <tr key={contact.id}><td>{contact.name}</td><td>{contact.suburb ?? "—"}</td><td>{contact.maskedPhone}</td><td>{contact.status}</td><td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} aria-label={`Open ${contact.name}`}><ArrowUpRight size={15} /></Link></td></tr>)}</tbody></table></div>{contactNextOffset !== null ? <nav className={styles.pagination}><span>Contacts page {Math.floor(contactsOffset / 100) + 1}</span><Link href={contactPageHref(contactNextOffset)}>Next contacts</Link></nav> : null}</> : <EmptyState title="No current Open contacts" detail="Contacts appear here when assigned to this agent and marked Open in the company CRM." icon={<ContactRound size={18} />} />}
     </section>
 
     <section className={styles.panel}>
       <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>03 / ASSIGNMENT AUDIT</span><h2>Contact assignment history</h2></div><span className={styles.sectionCount}>{assignmentHistoryUnavailable ? "Unavailable" : `${assignmentTotal} assigned to agent`}</span></header>
-      {assignmentHistoryUnavailable ? <div className={styles.notice}>Assignment history is not available. Apply migration 20261011_000008_contact_assignment_history.sql. History begins when that migration is active; older GHL changes are not backfilled.</div> : assignments.length ? <><div className={styles.assignmentList}>{assignments.map((event) => <article key={event.id}><div><strong>{contactNames.get(event.ghl_contact_id)}</strong><time>{new Date(event.created_at).toLocaleString()}</time></div><p>{toAgentLabel(event.from_ghl_user_id)} <span>→</span> {toAgentLabel(event.to_ghl_user_id)}</p><small>Changed by {appNames.get(event.actor_id) ?? "Administrator"}</small></article>)}</div><nav className={styles.pagination}><span>Page {assignmentsPage} of {assignmentsPageCount} · {assignmentsHistoryCount} history events</span><div><Link href={pageHref(Math.max(1, assignmentsPage - 1), "assignments")} aria-disabled={assignmentsPage <= 1}>Previous</Link><Link href={pageHref(Math.min(assignmentsPageCount, assignmentsPage + 1), "assignments")} aria-disabled={assignmentsPage >= assignmentsPageCount}>Next</Link></div></nav></> : <EmptyState title="No assignments recorded" detail="Assignment events made through Terraverse after history tracking is enabled appear here." icon={<ContactRound size={18} />} />}
+      {assignmentHistoryUnavailable ? <div className={styles.notice}>Company assignment history is unavailable. Apply the company foundation migration.</div> : assignments.length ? <><div className={styles.assignmentList}>{assignments.map((event) => <article key={event.id}><div><strong>{event.internal_contact_id ? contactNames.get(event.internal_contact_id) : "Legacy assignment"}</strong><time>{new Date(event.created_at).toLocaleString()}</time></div><p>{toAgentLabel(event.from_agent_id)} <span>→</span> {toAgentLabel(event.to_agent_id)}</p><small>Changed by {appNames.get(event.actor_id) ?? "Administrator"}</small></article>)}</div><nav className={styles.pagination}><span>Page {assignmentsPage} of {assignmentsPageCount} · {assignmentsHistoryCount} history events</span><div><Link href={pageHref(Math.max(1, assignmentsPage - 1), "assignments")} aria-disabled={assignmentsPage <= 1}>Previous</Link><Link href={pageHref(Math.min(assignmentsPageCount, assignmentsPage + 1), "assignments")} aria-disabled={assignmentsPage >= assignmentsPageCount}>Next</Link></div></nav></> : <EmptyState title="No assignments recorded" detail="Company contact assignments will appear here." icon={<ContactRound size={18} />} />}
     </section>
 
     <section className={styles.panel}>

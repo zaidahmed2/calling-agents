@@ -1,18 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Activity, AudioLines, CalendarClock, ChartNoAxesCombined, ContactRound, LayoutDashboard, LogOut, Settings2, UsersRound } from "lucide-react";
+import { Activity, AudioLines, CalendarClock, ChartNoAxesCombined, ContactRound, LayoutDashboard, LogOut, Settings2, UsersRound, UserRoundCog } from "lucide-react";
 
 import { logout } from "@/app/dashboard/actions";
 import { AppSession } from "@/lib/auth";
-import AdminAgentRoster from "@/components/admin-agent-roster";
 import WorkSessionTimer from "@/app/open-queue/work-session-timer";
 import styles from "@/components/workspace-shell.module.css";
 
-type WorkspaceSection = "overview" | "contacts" | "calls" | "callbacks" | "sessions" | "settings";
+type WorkspaceSection = "overview" | "contacts" | "agents" | "calls" | "callbacks" | "sessions" | "settings";
 
 const adminLinks = [
   { key: "overview", href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { key: "contacts", href: "/contacts", label: "Contacts", icon: ContactRound },
+  { key: "agents", href: "/agents", label: "Agents", icon: UserRoundCog },
   { key: "calls", href: "/calls", label: "Call history", icon: AudioLines },
   { key: "callbacks", href: "/callbacks", label: "Callbacks", icon: CalendarClock },
   { key: "sessions", href: "/sessions", label: "Agent activity", icon: Activity },
@@ -60,7 +60,6 @@ export function WorkspaceShell({
             </Link>
           ))}
         </nav>
-        {isAdmin ? <AdminAgentRoster /> : null}
         {isAdmin ? <Link href="/settings" className={styles.adminSettings}><ChartNoAxesCombined size={16} /> System & integrations</Link> : null}
         <div className={styles.account}>
           <span className={styles.avatar}>{initials || <UsersRound size={15} />}</span>

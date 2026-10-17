@@ -29,6 +29,12 @@
 .rosterUserInfo small { color:var(--text-faint);font-size:9px }
 .rosterReady,.rosterNeedsSetup { flex:0 0 auto;color:var(--primary);font-size:8px;font-weight:750 }
 .rosterNeedsSetup { color:#946010 }
+.agentInvite { display:flex; gap:5px; }
+.agentInvite input { min-width:0; flex:1; height:31px; padding:0 7px; border:1px solid var(--border); border-radius:5px; color:var(--text); background:#fff; font:inherit; font-size:10px; }
+.agentInvite button { width:31px; height:31px; display:grid; place-items:center; border:1px solid var(--border); border-radius:5px; color:var(--primary); background:#fff; }
+.rosterReady,.rosterNeedsSetup { padding:3px 5px; border:0; border-radius:3px; background:var(--primary-soft); cursor:pointer; }
+.rosterNeedsSetup { background:#fff4dc; }
+.rosterNotice { padding:5px; color:var(--primary-strong); font-size:9px; line-height:1.35; }
 .rosterMessage,.rosterError { padding:6px 5px;color:var(--text-faint);font-size:10px;line-height:1.4 }
 .rosterError { color:#923f36 }
 .adminSettings { display: flex; align-items: center; gap: 9px; margin: 18px 5px 0; padding: 12px 8px; border-top: 1px solid var(--border); color: var(--text-soft); font-size: 11px; }

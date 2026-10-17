@@ -10,7 +10,7 @@ export async function getLatestCallDatesByContact(contactIds: string[]): Promise
       const { data, error } = await supabase
         .from("calls")
         .select("requested_at")
-        .eq("ghl_contact_id", contactId)
+        .eq("internal_contact_id", contactId)
         .order("requested_at", { ascending: false })
         .limit(1)
         .maybeSingle();

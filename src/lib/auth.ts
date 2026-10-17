@@ -1,9 +1,11 @@
-export type AppRole = "admin" | "agent";
+export type AppRole = "admin" | "agent" | "super_admin";
 
 export type AppSession = {
   id: string;
   email: string;
   role: AppRole;
+  companyId: string | null;
+  isSuperAdmin: boolean;
   ghlUserId: string | null;
   displayName: string;
 };

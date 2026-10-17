@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { env } from "@/lib/env";
-import { getOpenContactForAgent } from "@/lib/ghl";
+import { getOpenContactForAgent } from "@/lib/contacts";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
 import { auditAgentPhoneReveal, recordAgentWorkActivity } from "@/lib/work-session-activity";
@@ -16,7 +16,7 @@ const revealLimiter = createRateLimiter({
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (session.role !== "agent" || !session.ghlUserId) {
+  if (session.role !== "agent" || !session.companyId) {
     return NextResponse.json({ error: "This contact is not available." }, { status: 404 });
   }
   if (!isWithinRateLimit(revealLimiter, session.id)) {
@@ -24,7 +24,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   }
 
   const { id } = await params;
-  const contact = await getOpenContactForAgent(id, session.ghlUserId);
+  const contact = await getOpenContactForAgent(id, session.companyId, session.id);
   if (!contact?.phone) return NextResponse.json({ error: "This contact is not available." }, { status: 404 });
   if (!await auditAgentPhoneReveal(contact.id)) return NextResponse.json({ error: "Number access could not be verified. Try again or contact an administrator." }, { status: 503 });
   await recordAgentWorkActivity();

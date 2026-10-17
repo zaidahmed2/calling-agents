@@ -4,14 +4,14 @@ import { ArrowLeft, AudioLines, CalendarClock, Phone, UserRound } from "lucide-r
 
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { EmptyState, StatusBadge } from "@/components/ui";
-import { getGhlContact } from "@/lib/ghl";
+import { getCompanyContact } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/calls/calls.module.css";
 
 export const dynamic = "force-dynamic";
 
-type CallRow = { id: string; agent_id: string; ghl_contact_id: string; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
+type CallRow = { id: string; agent_id: string; ghl_contact_id: string; internal_contact_id: string | null; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
 type DispositionRow = { outcome: string; note: string | null; qualified: boolean; callback_at: string | null; callback_timezone: string | null; created_at: string };
 
 export default async function CallDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -21,12 +21,12 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params;
 
   const supabase = await createSupabaseServerClient();
-  const { data: callData, error } = await supabase.from("calls").select("id, agent_id, ghl_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome").eq("id", id).maybeSingle();
+  const { data: callData, error } = await supabase.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome").eq("id", id).eq("company_id", session.companyId).maybeSingle();
   if (error) return <WorkspaceShell session={session} section="calls" title="Call details"><div className={styles.error} role="alert">Call details are unavailable. Check database connectivity and permissions.</div></WorkspaceShell>;
   if (!callData) notFound();
   const call = callData as CallRow;
   const [contact, agentResult, dispositionResult] = await Promise.all([
-    getGhlContact(call.ghl_contact_id),
+    call.internal_contact_id && session.companyId ? getCompanyContact(call.internal_contact_id, session.companyId) : Promise.resolve(null),
     supabase.from("profiles").select("normalized_email").eq("id", call.agent_id).maybeSingle(),
     supabase.from("call_dispositions").select("outcome, note, qualified, callback_at, callback_timezone, created_at").eq("call_id", call.id).order("created_at", { ascending: false }),
   ]);
@@ -36,7 +36,7 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
   return <WorkspaceShell session={session} section="calls" title="Call details" subtitle="Saved call events and available notes.">
     <Link href="/calls" className={styles.backLink}><ArrowLeft size={15} /> Call history</Link>
     <section className={styles.callDetail}>
-      <header><div><span className={styles.detailEyebrow}>CALL RECORD</span><h2>{contact?.name ?? `Contact ${call.ghl_contact_id}`}</h2><span className={styles.detailId}>{call.id}</span></div><StatusBadge tone={tone}>{call.current_state}</StatusBadge></header>
+      <header><div><span className={styles.detailEyebrow}>CALL RECORD</span><h2>{contact?.name ?? `Legacy contact ${call.ghl_contact_id}`}</h2><span className={styles.detailId}>{call.id}</span></div><StatusBadge tone={tone}>{call.current_state}</StatusBadge></header>
       <div className={styles.detailGrid}>
         <div><span><Phone size={14} /> Phone</span><strong>{contact?.phone ?? "Unavailable"}</strong></div>
         <div><span><UserRound size={14} /> Agent</span><strong>{agentResult.data?.normalized_email ?? "Unknown agent"}</strong></div>

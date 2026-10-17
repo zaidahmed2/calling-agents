@@ -4,14 +4,14 @@ import { ArrowUpRight, AudioLines, Search } from "lucide-react";
 
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { EmptyState, StatusBadge } from "@/components/ui";
-import { getGhlContact } from "@/lib/ghl";
+import { getCompanyContact } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/calls/calls.module.css";
 
 export const dynamic = "force-dynamic";
 
-type CallRow = { id: string; agent_id: string; ghl_contact_id: string; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
+type CallRow = { id: string; agent_id: string; ghl_contact_id: string; internal_contact_id: string | null; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
 type AgentRow = { id: string; normalized_email: string };
 type DispositionRow = { call_id: string; outcome: string; note: string | null; qualified: boolean; callback_at: string | null; created_at: string };
 
@@ -38,13 +38,13 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
   let calls: CallRow[] = [];
   let agents: AgentRow[] = [];
   let dispositions: DispositionRow[] = [];
-  let contacts = new Map<string, Awaited<ReturnType<typeof getGhlContact>>>();
+  let contacts = new Map<string, Awaited<ReturnType<typeof getCompanyContact>>>();
   let total = 0;
   let unavailable = false;
 
   try {
     const supabase = await createSupabaseServerClient();
-    let query = supabase.from("calls").select("id, agent_id, ghl_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).order("requested_at", { ascending: false });
+    let query = supabase.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).order("requested_at", { ascending: false });
     if (q) query = query.ilike("ghl_contact_id", `%${q}%`);
     if (selectedAgent !== "all") query = query.eq("agent_id", selectedAgent);
     if (selectedState !== "all") query = query.eq("current_state", selectedState);
@@ -59,10 +59,10 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
       calls = callResult.data ?? [];
       total = callResult.count ?? 0;
       agents = agentResult.data ?? [];
-      const ids = [...new Set(calls.map((call) => call.ghl_contact_id))];
+      const ids = [...new Set(calls.flatMap((call) => call.internal_contact_id ? [call.internal_contact_id] : []))];
       const callIds = calls.map((call) => call.id);
       const [contactResults, dispositionResult] = await Promise.all([
-        Promise.all(ids.map((id) => getGhlContact(id))),
+        Promise.all(ids.map((id) => session.companyId ? getCompanyContact(id, session.companyId) : Promise.resolve(null))),
         callIds.length ? supabase.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").in("call_id", callIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       ]);
       contacts = new Map(ids.map((id, index) => [id, contactResults[index]]));
@@ -103,9 +103,10 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
       {unavailable ? <div className={styles.error} role="alert">Call history could not be loaded. Check database connectivity and permissions.</div> : null}
       <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>PHONE</th><th>AGENT</th><th>DATE & TIME</th><th>DURATION</th><th>OUTCOME</th><th>STATE</th><th>DETAILS</th></tr></thead><tbody>
         {calls.map((call) => {
-          const contact = contacts.get(call.ghl_contact_id);
+          const contactId = call.internal_contact_id;
+          const contact = contactId ? contacts.get(contactId) : null;
           const disposition = latestDisposition.get(call.id);
-          return <tr key={call.id}><td><Link href={`/contacts/${encodeURIComponent(call.ghl_contact_id)}`} className={styles.contactName}>{contact?.name ?? `Contact ${call.ghl_contact_id}`}<small>{call.ghl_contact_id}</small></Link>{disposition?.note ? <details className={styles.note}><summary>View note</summary><p>{disposition.note}</p></details> : null}</td><td>{contact?.phone ?? "Unavailable"}</td><td>{agentNames.get(call.agent_id) ?? "Unknown agent"}</td><td>{new Date(call.requested_at).toLocaleString()}</td><td>{call.verified_duration_seconds === null ? "—" : `${Math.floor(call.verified_duration_seconds / 60)}m ${String(call.verified_duration_seconds % 60).padStart(2, "0")}s`}</td><td>{disposition?.outcome ?? call.outcome ?? "—"}{disposition?.callback_at ? <small className={styles.subLine}>Callback {new Date(disposition.callback_at).toLocaleString()}</small> : null}</td><td><StatusBadge tone={stateTone(call.current_state)}>{call.current_state}</StatusBadge></td><td><Link href={`/calls/${encodeURIComponent(call.id)}`} className={styles.detailLink} aria-label={`View details for call ${call.id}`}><ArrowUpRight size={14} /></Link></td></tr>;
+          return <tr key={call.id}><td>{contactId ? <Link href={`/contacts/${encodeURIComponent(contactId)}`} className={styles.contactName}>{contact?.name ?? "Contact"}<small>{contactId}</small></Link> : <span className={styles.contactName}>Legacy contact<small>{call.ghl_contact_id}</small></span>}{disposition?.note ? <details className={styles.note}><summary>View note</summary><p>{disposition.note}</p></details> : null}</td><td>{contact?.phone ?? "Unavailable"}</td><td>{agentNames.get(call.agent_id) ?? "Unknown agent"}</td><td>{new Date(call.requested_at).toLocaleString()}</td><td>{call.verified_duration_seconds === null ? "—" : `${Math.floor(call.verified_duration_seconds / 60)}m ${String(call.verified_duration_seconds % 60).padStart(2, "0")}s`}</td><td>{disposition?.outcome ?? call.outcome ?? "—"}{disposition?.callback_at ? <small className={styles.subLine}>Callback {new Date(disposition.callback_at).toLocaleString()}</small> : null}</td><td><StatusBadge tone={stateTone(call.current_state)}>{call.current_state}</StatusBadge></td><td><Link href={`/calls/${encodeURIComponent(call.id)}`} className={styles.detailLink} aria-label={`View details for call ${call.id}`}><ArrowUpRight size={14} /></Link></td></tr>;
         })}
       </tbody></table>
       {!unavailable && calls.length === 0 ? <EmptyState title="No calls found" detail="Saved call history matching these filters will appear here." icon={<AudioLines size={18} />} /> : null}</div>

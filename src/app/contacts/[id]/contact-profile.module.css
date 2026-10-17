@@ -49,6 +49,14 @@
 .primaryButton,.secondaryButton { min-height:34px;padding:0 11px;border:1px solid var(--border);border-radius:7px;font-size:9px;font-weight:750 }
 .primaryButton { border-color:var(--primary);color:#fff;background:var(--primary) }
 .secondaryButton { color:var(--text);background:#fff }
+.contactEditor { display:grid;gap:10px;padding-top:12px;border-top:1px solid var(--border) }
+.editorGrid { display:grid;grid-template-columns:1fr 1fr;gap:9px }
+.editorGrid label { min-width:0;display:grid;gap:5px;color:var(--text-soft);font-size:10px;font-weight:700 }
+.editorGrid input,.editorGrid select,.editorGrid textarea { width:100%;min-height:34px;padding:7px;border:1px solid var(--border);border-radius:5px;color:var(--text);background:white;font:inherit;font-size:11px }
+.editorNotes { grid-column:1 / -1 }
+.editorActions { display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding-top:8px }
+.editorActions>span { font-size:10px }
+.editorError { color:#923f36;font-size:10px }
 .panelHeader { display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px }
 .panelHeader h2 { margin:0;color:var(--text);font-size:13px }
 .historyList { display:grid;max-height:420px;overflow:auto }
@@ -71,4 +79,4 @@
 .timelineItem strong { color:var(--text);font-size:9px;text-transform:capitalize }
 .timelineItem span,.timelineItem time { color:var(--text-faint);font-size:8px }
 @media(max-width:850px){.profileGrid{grid-template-columns:1fr}}
-@media(max-width:520px){.infoGrid{grid-template-columns:1fr 1fr}.timelineItem{grid-template-columns:10px minmax(0,1fr)}.timelineItem time{grid-column:2}}
+@media(max-width:520px){.infoGrid{grid-template-columns:1fr 1fr}.editorGrid{grid-template-columns:1fr}.editorNotes{grid-column:auto}.timelineItem{grid-template-columns:10px minmax(0,1fr)}.timelineItem time{grid-column:2}}

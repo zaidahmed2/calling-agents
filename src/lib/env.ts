@@ -20,6 +20,7 @@ export const env = {
   supabaseAnonKey: read("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") ?? read("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? "",
   supabaseServiceRoleKey: read("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   supabaseJwtSecret: read("SUPABASE_JWT_SECRET") ?? "",
+  integrationEncryptionKey: read("INTEGRATION_ENCRYPTION_KEY") ?? "",
 
   ghlPrivateIntegrationKey: read("GHL_PRIVATE_INTEGRATION_KEY") ?? "",
   ghlWebhookSecret: read("GHL_WEBHOOK_SECRET") ?? "",

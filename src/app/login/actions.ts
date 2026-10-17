@@ -104,7 +104,7 @@ export async function submitOtp(_prevState: unknown, formData: FormData) {
   try {
     const result = await supabase
       .from("profiles")
-      .select("app_role, is_active, normalized_email")
+      .select("platform_role, is_active, normalized_email")
       .eq("id", data.user.id)
       .maybeSingle();
     profile = result.data;
@@ -120,10 +120,24 @@ export async function submitOtp(_prevState: unknown, formData: FormData) {
     return { ok: false, message: "Your code was verified, but the application could not check your access. Contact the administrator." };
   }
 
-  if (!profile?.is_active || profile.normalized_email !== email || !["admin", "agent"].includes(profile.app_role)) {
+  if (!profile?.is_active || profile.normalized_email !== email) {
     await supabase.auth.signOut();
     return { ok: false, message: "This account is not enabled for the application. Contact your administrator." };
   }
 
-  redirect(profile.app_role === "admin" ? "/dashboard" : "/open-queue");
+  if (profile.platform_role === "super_admin") redirect("/super-admin");
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("company_memberships")
+    .select("role, is_active, companies!inner(status)")
+    .eq("profile_id", data.user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  const company = membership?.companies as { status?: string } | null;
+  if (membershipError || !membership || company?.status !== "active") {
+    await supabase.auth.signOut();
+    return { ok: false, message: "This account is not enabled for an active company. Contact your administrator." };
+  }
+
+  redirect(membership.role === "admin" ? "/dashboard" : "/open-queue");
 }

@@ -51,7 +51,7 @@ export async function proxy(request: NextRequest) {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("app_role, is_active, normalized_email")
+    .select("platform_role, is_active, normalized_email")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -62,11 +62,39 @@ export async function proxy(request: NextRequest) {
       : NextResponse.redirect(new URL("/login?access=denied", request.url));
   }
 
-  if ((pathname.startsWith("/dashboard") || pathname.startsWith("/settings")) && profile.app_role !== "admin") {
+  const isSuperAdmin = profile.platform_role === "super_admin";
+  if (isSuperAdmin) {
+    if (pathname.startsWith("/super-admin") || pathname.startsWith("/api/super-admin")) return response;
+    return isApi
+      ? NextResponse.json({ error: "Platform administrator access is required for this endpoint." }, { status: 403 })
+      : NextResponse.redirect(new URL("/super-admin", request.url));
+  }
+
+  if (pathname.startsWith("/super-admin") || pathname.startsWith("/api/super-admin")) {
+    return isApi
+      ? NextResponse.json({ error: "Platform administrator access is required." }, { status: 403 })
+      : NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("company_memberships")
+    .select("role, company_id, companies!inner(status)")
+    .eq("profile_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  const company = membership?.companies as { status?: string } | null;
+  if (membershipError || !membership || company?.status !== "active") {
+    await supabase.auth.signOut();
+    return isApi
+      ? NextResponse.json({ error: "Company access is not enabled." }, { status: 403 })
+      : NextResponse.redirect(new URL("/login?access=denied", request.url));
+  }
+
+  if ((pathname.startsWith("/dashboard") || pathname.startsWith("/settings")) && membership.role !== "admin") {
     return NextResponse.redirect(new URL("/open-queue", request.url));
   }
 
-  if ((pathname.startsWith("/sessions") || pathname.startsWith("/dispositions")) && profile.app_role !== "admin") {
+  if ((pathname.startsWith("/sessions") || pathname.startsWith("/dispositions")) && membership.role !== "admin") {
     return NextResponse.redirect(new URL("/open-queue", request.url));
   }
 

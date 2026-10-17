@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowDownUp, ArrowUp, ArrowDown, ExternalLink } from "lucide-react";
+import { ArrowDownUp, ArrowUp, ArrowDown, Check, ExternalLink, FileSpreadsheet, Plus, RefreshCw, Upload, UserRoundPlus, X } from "lucide-react";
+import Papa from "papaparse";
+import readXlsxFile from "read-excel-file/browser";
 
 import type { GhlContact, GhlCursor } from "@/lib/ghl";
 import { Pagination, SearchField, StatusBadge } from "@/components/ui";
@@ -12,6 +14,28 @@ type Agent = { id: string; email: string; ghlUserId: string; name: string };
 type ContactRow = GhlContact & { lastCallAt: string | null };
 type ApiState = { contacts: ContactRow[]; nextCursor: GhlCursor | null; total: number | null; agents: Agent[]; statusFieldConfigured: boolean };
 type UpdateResult = { results: Array<{ contactId: string; ok: boolean; message: string }>; succeeded: number; failed: number };
+type ImportMapping = { name: string; firstName: string; lastName: string; phone: string; email: string; status: string; subject: string; notes: string; leadSource: string };
+type ImportRow = Record<string, unknown>;
+const importFields: Array<{ key: keyof ImportMapping; label: string }> = [
+  { key: "name", label: "Contact name" }, { key: "firstName", label: "First name" }, { key: "lastName", label: "Last name" },
+  { key: "phone", label: "Phone" }, { key: "email", label: "Email" }, { key: "status", label: "Status" },
+  { key: "subject", label: "Subject" }, { key: "notes", label: "Notes" }, { key: "leadSource", label: "Lead source" },
+];
+
+function guessColumn(headers: string[], field: keyof ImportMapping): string {
+  const patterns: Record<keyof ImportMapping, RegExp> = {
+    name: /^(name|contact name|full name)$/i,
+    firstName: /^(first name|firstname|first)$/i,
+    lastName: /^(last name|lastname|surname|last)$/i,
+    phone: /^(phone|phone number|mobile|telephone)$/i,
+    email: /^(email|email address)$/i,
+    status: /^(status|contact status)$/i,
+    subject: /^(subject|lead subject)$/i,
+    notes: /^(notes|note|comments)$/i,
+    leadSource: /^(lead source|source)$/i,
+  };
+  return headers.find((header) => patterns[field].test(header.trim())) ?? "";
+}
 
 export default function ContactsManager({ initialData, initialError = "" }: { initialData: ApiState; initialError?: string }) {
   const [data, setData] = useState<ApiState>(initialData);
@@ -29,6 +53,16 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [newContact, setNewContact] = useState({ name: "", phone: "", email: "", status: "open", subject: "", notes: "", assignedAgentId: "" });
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [importMapping, setImportMapping] = useState<ImportMapping>({ name: "", firstName: "", lastName: "", phone: "", email: "", status: "", subject: "", notes: "", leadSource: "" });
+  const [importFileName, setImportFileName] = useState("");
+  const [importDuplicates, setImportDuplicates] = useState<Array<{ row: number; email?: string; phone?: string; reason: string }>>([]);
+  const [importInvalidRows, setImportInvalidRows] = useState<Array<{ row: number; error: string }>>([]);
+  const [importBusy, setImportBusy] = useState(false);
 
   async function loadPage(nextCursor: GhlCursor | null, history = cursorHistory, requestedPageSize = pageSize) {
     setLoading(true);
@@ -40,12 +74,12 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
       if (nextCursor?.startAfterId) params.set("startAfterId", nextCursor.startAfterId);
       const response = await fetch(`/api/admin/contacts?${params.toString()}`, { cache: "no-store" });
       const payload = await response.json() as ApiState & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Could not load GHL contacts.");
+      if (!response.ok) throw new Error(payload.error ?? "Could not load CRM contacts.");
       setData(payload);
       setCursor(nextCursor);
       setCursorHistory(history);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load GHL contacts.");
+      setError(loadError instanceof Error ? loadError.message : "Could not load CRM contacts.");
     } finally {
       setLoading(false);
     }
@@ -105,7 +139,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
       });
       const result = await response.json() as UpdateResult & { error?: string };
       if (!response.ok && !result.results) throw new Error(result.error ?? "Contact update failed.");
-      setNotice(`${result.succeeded} contact${result.succeeded === 1 ? "" : "s"} updated in GHL${result.failed ? `; ${result.failed} failed` : ""}.`);
+      setNotice(`${result.succeeded} contact${result.succeeded === 1 ? "" : "s"} updated in the CRM${result.failed ? `; ${result.failed} failed` : ""}.`);
       if (result.failed) setError(result.results.filter((item) => !item.ok).map((item) => `${item.contactId}: ${item.message}`).join(" "));
       setSelected([]);
       setAssignedTo("");
@@ -129,35 +163,205 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
     void loadPage(previous, cursorHistory.slice(0, -1));
   }
 
+  async function createContact(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreateBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newContact),
+      });
+      const result = await response.json() as { error?: string; imported?: number };
+      if (!response.ok) throw new Error(result.error ?? "Contact could not be created.");
+      setNewContact({ name: "", phone: "", email: "", status: "open", subject: "", notes: "", assignedAgentId: "" });
+      setShowCreate(false);
+      setNotice("Contact created in the company CRM.");
+      await loadPage(null, []);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Contact could not be created.");
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
+  function mappedImportRows() {
+    return importRows.map((row) => {
+      const get = (field: keyof ImportMapping) => importMapping[field] ? String(row[importMapping[field]] ?? "").trim() : "";
+      return {
+        name: get("name") || [get("firstName"), get("lastName")].filter(Boolean).join(" "),
+        firstName: get("firstName"),
+        lastName: get("lastName"),
+        phone: get("phone"),
+        email: get("email"),
+        status: get("status") || "open",
+        subject: get("subject"),
+        notes: get("notes"),
+        leadSource: get("leadSource"),
+      };
+    });
+  }
+
+  async function readImportFile(file?: File) {
+    setError("");
+    setNotice("");
+    setImportDuplicates([]);
+    setImportInvalidRows([]);
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Choose a spreadsheet smaller than 10 MB.");
+      return;
+    }
+    try {
+      let rows: ImportRow[];
+      if (file.name.toLowerCase().endsWith(".csv")) {
+        const parsed = Papa.parse<ImportRow>(await file.text(), { header: true, skipEmptyLines: true, transformHeader: (header) => header.trim() });
+        if (parsed.errors.length) throw new Error("The CSV contains invalid rows or inconsistent columns.");
+        rows = parsed.data;
+      } else if (file.name.toLowerCase().endsWith(".xlsx")) {
+        const sheetRows = (await readXlsxFile(file))[0]?.data ?? [];
+        if (sheetRows.length < 2) throw new Error("The spreadsheet has no contact rows.");
+        const headers = sheetRows[0].map((value) => String(value ?? "").trim());
+        rows = sheetRows.slice(1).flatMap((values) => {
+          const record: ImportRow = {};
+          headers.forEach((header, index) => { if (header) record[header] = String(values[index] ?? "").trim(); });
+          return Object.values(record).some((value) => String(value).trim()) ? [record] : [];
+        });
+      } else {
+        throw new Error("Choose a CSV or XLSX file.");
+      }
+      if (!rows.length || rows.length > 500) throw new Error("The first worksheet must contain between 1 and 500 contact rows.");
+      const headers = Object.keys(rows[0]);
+      const mapping = Object.fromEntries(importFields.map(({ key }) => [key, guessColumn(headers, key)])) as ImportMapping;
+      if (!mapping.name && !mapping.firstName) throw new Error("Map a contact name or first-name column to continue.");
+      setImportFileName(file.name);
+      setImportHeaders(headers);
+      setImportRows(rows);
+      setImportMapping(mapping);
+      setImportBusy(true);
+      const response = await fetch("/api/admin/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contacts: rows.map((row) => {
+          const get = (field: keyof ImportMapping) => mapping[field] ? String(row[mapping[field]] ?? "").trim() : "";
+          return { name: get("name") || [get("firstName"), get("lastName")].filter(Boolean).join(" "), firstName: get("firstName"), lastName: get("lastName"), phone: get("phone"), email: get("email"), status: get("status") || "open", subject: get("subject"), notes: get("notes"), leadSource: get("leadSource") };
+        }), preview: true }),
+      });
+      const result = await response.json() as { error?: string; duplicates?: typeof importDuplicates; invalidRows?: typeof importInvalidRows };
+      if (!response.ok) throw new Error(result.error ?? "The spreadsheet could not be previewed.");
+      setImportDuplicates(result.duplicates ?? []);
+      setImportInvalidRows(result.invalidRows ?? []);
+    } catch (importError) {
+      setImportRows([]);
+      setError(importError instanceof Error ? importError.message : "Could not read this spreadsheet.");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!importRows.length) return;
+    setImportBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contacts: mappedImportRows() }),
+      });
+      const result = await response.json() as { error?: string; imported?: number; skippedDuplicates?: number; invalidRows?: typeof importInvalidRows };
+      if (!response.ok) throw new Error(result.error ?? "Import failed.");
+      setNotice(`${result.imported ?? 0} imported; ${result.skippedDuplicates ?? 0} duplicates and ${result.invalidRows?.length ?? 0} invalid rows skipped.`);
+      setImportRows([]);
+      setImportHeaders([]);
+      setImportDuplicates([]);
+      setImportInvalidRows([]);
+      setImportFileName("");
+      await loadPage(null, []);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Import failed.");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  function closeImport() {
+    if (importBusy) return;
+    setImportRows([]);
+    setImportHeaders([]);
+    setImportDuplicates([]);
+    setImportInvalidRows([]);
+    setImportFileName("");
+  }
+
   return (
     <>
       <section className={styles.summaryBar}>
-        <div><span className={styles.summaryIcon}>↻</span><div><strong>Contacts from Terraverse</strong><p>{data.total === null ? `${data.contacts.length} loaded on this page; source did not provide a total.` : `${data.total.toLocaleString()} total contacts.`} Assignment and status are read from the contact source.</p></div></div>
-        <button type="button" className={styles.refreshButton} onClick={() => void loadPage(cursor)} disabled={loading}>↻ <span>Refresh</span></button>
+        <div><span className={styles.summaryIcon}>↻</span><div><strong>Company CRM contacts</strong><p>{data.total === null ? `${data.contacts.length} loaded on this page.` : `${data.total.toLocaleString()} contacts in this company.`} Contact records and assignments are managed here.</p></div></div>
+        <div className={styles.actionGroup}>
+          <button type="button" className={styles.iconAction} onClick={() => void loadPage(cursor)} disabled={loading} aria-label="Refresh contacts" title="Refresh contacts"><RefreshCw size={15} />{loading ? "Refreshing" : "Refresh"}</button>
+          <button type="button" className={styles.secondaryAction} onClick={() => { setError(""); setNotice(""); setShowCreate(true); }}><UserRoundPlus size={15} />Add contact</button>
+          <label className={styles.primaryAction}><Upload size={15} />Import file<input type="file" accept=".csv,.xlsx" onChange={(event) => void readImportFile(event.target.files?.[0])} hidden /></label>
+        </div>
       </section>
 
-      {!data.statusFieldConfigured ? <div className={styles.warning} role="status"><strong>Status field key was not resolved.</strong><span>Contacts remain visible, but status changes are disabled. Set GHL_CONTACT_STATUS_FIELD_KEY to the exact key from GHL custom fields.</span></div> : null}
-      {data.agents.length === 0 ? <div className={styles.warning} role="status"><strong>No assignable agents are configured.</strong><span>Contact assignment is limited to active Terraverse agents mapped to verified non-admin users.</span></div> : null}
+      {showCreate ? <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setShowCreate(false); }}>
+        <section className={styles.contactDialog} role="dialog" aria-modal="true" aria-labelledby="create-contact-title">
+          <header className={styles.dialogHeader}><div className={styles.dialogHeading}><span className={styles.dialogIcon}><UserRoundPlus size={17} /></span><div><span className={styles.dialogEyebrow}>COMPANY CRM</span><h2 id="create-contact-title">Add contact</h2><p>Create a contact record for this company.</p></div></div><button type="button" className={styles.dialogClose} onClick={() => setShowCreate(false)} disabled={createBusy} aria-label="Close dialog"><X size={17} /></button></header>
+          <form className={styles.contactForm} onSubmit={(event) => void createContact(event)}>
+            <div className={styles.contactFormGrid}>
+              <label className={styles.formWide}>Contact name<input autoFocus required value={newContact.name} onChange={(event) => setNewContact((current) => ({ ...current, name: event.target.value }))} placeholder="Full name" /></label>
+              <label>Phone<input type="tel" value={newContact.phone} onChange={(event) => setNewContact((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone number" /></label>
+              <label>Email<input type="email" value={newContact.email} onChange={(event) => setNewContact((current) => ({ ...current, email: event.target.value }))} placeholder="name@company.com" /></label>
+              <label>Status<input required maxLength={80} value={newContact.status} onChange={(event) => setNewContact((current) => ({ ...current, status: event.target.value }))} /></label>
+              <label>Assigned agent<select value={newContact.assignedAgentId} onChange={(event) => setNewContact((current) => ({ ...current, assignedAgentId: event.target.value }))}><option value="">Unassigned</option>{data.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {agent.email}</option>)}</select></label>
+              <label className={styles.formWide}>Subject<input value={newContact.subject} onChange={(event) => setNewContact((current) => ({ ...current, subject: event.target.value }))} placeholder="Optional lead subject" /></label>
+              <label className={styles.formWide}>Notes<textarea rows={3} maxLength={5000} value={newContact.notes} onChange={(event) => setNewContact((current) => ({ ...current, notes: event.target.value }))} placeholder="Add useful context for the team" /></label>
+            </div>
+            {error ? <p className={styles.dialogError} role="alert">{error}</p> : null}
+            <footer className={styles.dialogFooter}><button type="button" className={styles.dialogCancel} onClick={() => setShowCreate(false)} disabled={createBusy}>Cancel</button><button type="submit" className={styles.dialogSubmit} disabled={createBusy || !newContact.name.trim()}><Plus size={15} />{createBusy ? "Creating..." : "Create contact"}</button></footer>
+          </form>
+        </section>
+      </div> : null}
+
+      {importRows.length ? <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeImport(); }}>
+        <section className={`${styles.contactDialog} ${styles.importDialog}`} role="dialog" aria-modal="true" aria-labelledby="import-contact-title">
+          <header className={styles.dialogHeader}><div className={styles.dialogHeading}><span className={styles.dialogIcon}><FileSpreadsheet size={17} /></span><div><span className={styles.dialogEyebrow}>SPREADSHEET IMPORT</span><h2 id="import-contact-title">Review contacts</h2><p>{importFileName}</p></div></div><button type="button" className={styles.dialogClose} onClick={closeImport} disabled={importBusy} aria-label="Close dialog"><X size={17} /></button></header>
+          <div className={styles.importSummary}><span><strong>{importRows.length}</strong> rows</span><span><strong>{importRows.length - importInvalidRows.length - importDuplicates.length}</strong> ready</span><span><strong>{importDuplicates.length}</strong> duplicates</span><span><strong>{importInvalidRows.length}</strong> invalid</span></div>
+          {importBusy ? <div className={styles.importLoading}><RefreshCw size={14} /> Checking rows and duplicates...</div> : null}
+          <div className={styles.mappingPanel}><div><strong>Map spreadsheet columns</strong><small>Choose which spreadsheet columns fill each CRM field.</small></div><div className={styles.mappingGrid}>{importFields.map(({ key, label }) => <label key={key}>{label}<select value={importMapping[key]} onChange={(event) => setImportMapping((current) => ({ ...current, [key]: event.target.value }))}><option value="">Skip field</option>{importHeaders.map((header) => <option key={`${key}-${header}`} value={header}>{header}</option>)}</select></label>)}</div></div>
+          <div className={styles.previewWrap}><strong>Contact preview</strong><div><table><thead><tr><th>ROW</th><th>NAME</th><th>EMAIL</th><th>PHONE</th><th>STATUS</th></tr></thead><tbody>{mappedImportRows().slice(0, 8).map((row, index) => <tr key={index}><td>{index + 1}</td><td>{row.name || "Missing name"}</td><td>{row.email || "—"}</td><td>{row.phone || "—"}</td><td>{row.status}</td></tr>)}</tbody></table></div><small>Showing up to 8 of {importRows.length} spreadsheet rows.</small></div>
+          {importDuplicates.length || importInvalidRows.length ? <div className={styles.validationList}>{importDuplicates.length ? <div><strong>Duplicate rows</strong>{importDuplicates.slice(0, 5).map((item) => <span key={`${item.row}-${item.reason}`}>Row {item.row}: {item.reason}</span>)}</div> : null}{importInvalidRows.length ? <div><strong>Needs correction</strong>{importInvalidRows.slice(0, 5).map((item) => <span key={`${item.row}-${item.error}`}>Row {item.row}: {item.error}</span>)}</div> : null}</div> : null}
+          {error ? <p className={`${styles.dialogError} ${styles.importDialogError}`} role="alert">{error}</p> : null}
+          <footer className={styles.dialogFooter}><button type="button" className={styles.dialogCancel} onClick={closeImport} disabled={importBusy}>Cancel</button><button type="button" className={styles.dialogSubmit} onClick={() => void confirmImport()} disabled={importBusy || importRows.length - importInvalidRows.length - importDuplicates.length <= 0}><Check size={15} />{importBusy ? "Importing..." : "Import ready contacts"}</button></footer>
+        </section>
+      </div> : null}
+
+      {!data.statusFieldConfigured ? <div className={styles.warning} role="status"><strong>Status field key was not resolved.</strong><span>Contacts remain visible, but status changes are disabled.</span></div> : null}
+      {data.agents.length === 0 ? <div className={styles.warning} role="status"><strong>No assignable agents are configured.</strong><span>Invite an active agent from the Agents page to assign company contacts.</span></div> : null}
       {error ? <div className={styles.error} role="alert"><strong>Could not complete operation</strong><span>{error}</span></div> : null}
       {notice ? <div className={styles.success} role="status">{notice}</div> : null}
 
       <section className={styles.tablePanel}>
         <div className={styles.tableToolbar}>
-          <div className={styles.selectionInfo}><strong>All contacts</strong><span>{selected.length ? `${selected.length} selected` : "Assignment and status are source-of-truth values"}</span></div>
+          <div className={styles.selectionInfo}><strong>All contacts</strong><span>{selected.length ? `${selected.length} selected` : "Company-owned CRM records"}</span></div>
           <SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search loaded contacts" aria-label="Search loaded contacts" />
         </div>
 
         <div className={styles.filters}>
           <label>Status <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="open">Open</option><option value="unknown">Unknown</option>{[...new Set(data.contacts.flatMap((contact) => contact.status ? [contact.status] : []))].filter((value) => value.toLowerCase() !== "open").map((value) => <option value={value.toLowerCase()} key={value}>{value}</option>)}</select></label>
           <label>Assigned agent <select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}><option value="all">All agents</option><option value="unassigned">Unassigned</option>{data.agents.map((agent) => <option value={agent.ghlUserId} key={agent.id}>{agent.email}</option>)}</select></label>
-          <span className={styles.filterCount}>{visibleContacts.length} shown on this source page</span>
+          <span className={styles.filterCount}>{visibleContacts.length} shown on this page</span>
         </div>
 
         {selected.length > 0 ? (
           <div className={styles.bulkBar}>
             <span>{selected.length} selected</span>
             <label><span>Assign to</span><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}><option value="">No assignment change</option><option value="__unassign__">Unassign</option>{data.agents.map((agent) => <option value={agent.ghlUserId} key={agent.id}>{agent.name} · {agent.email}</option>)}</select></label>
-            <label><span>Set status</span><input value={status} onChange={(event) => setStatus(event.target.value)} disabled={!data.statusFieldConfigured} maxLength={80} placeholder="Enter status, e.g. Open" /></label>
+            <label><span>Set status</span><input value={status} onChange={(event) => setStatus(event.target.value)} maxLength={80} placeholder="Enter status, e.g. Open" /></label>
             <button type="button" onClick={() => void applyChanges()} disabled={saving || (!assignedTo && !status)}>{saving ? "Saving..." : "Apply changes"}</button>
           </div>
         ) : null}
@@ -174,13 +378,13 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
                   <td>{contact.email ?? "—"}</td>
                   <td>{contact.phone ?? "—"}</td>
                   <td><StatusBadge tone={contact.isOpen ? "success" : contact.status ? "neutral" : "warning"}>{contact.status ?? "Unknown"}</StatusBadge></td>
-                  <td>{agent?.email ?? (contact.assignedUserId ? "Mapped agent not active" : "Unassigned")}</td>
+                  <td>{agent?.email ?? (contact.assignedUserId ? "Agent unavailable" : "Unassigned")}</td>
                   <td>{formatDate(contact.lastActivityAt)}</td>
                   <td>{formatDate(contact.lastCallAt)}</td>
                   <td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} className={styles.viewContact} aria-label={`Open ${contact.name}`}><ExternalLink size={14} /></Link></td>
                 </tr>;
               })}
-              {!loading && visibleContacts.length === 0 ? <tr><td colSpan={9} className={styles.empty}>{error ? "Contacts are unavailable." : search || statusFilter !== "all" || agentFilter !== "all" ? "No contacts on this page match these filters." : "No contacts returned for this location."}</td></tr> : null}
+              {!loading && visibleContacts.length === 0 ? <tr><td colSpan={9} className={styles.empty}>{error ? "Contacts are unavailable." : search || statusFilter !== "all" || agentFilter !== "all" ? "No contacts on this page match these filters." : "No contacts in this company yet."}</td></tr> : null}
               {loading ? <tr><td colSpan={9} className={styles.empty}>Loading contacts...</td></tr> : null}
             </tbody>
           </table>

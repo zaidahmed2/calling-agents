@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { env } from "@/lib/env";
-import { getCrazytelWebRtcConfig } from "@/lib/crazytel";
-import { getOpenContactForAgent, syncGhlManualCall, type CallStage } from "@/lib/ghl";
+import { getCompanyCallingConfig } from "@/lib/calling-provider";
+import { getOpenContactForAgent } from "@/lib/contacts";
+import { type CallStage } from "@/lib/ghl";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -15,7 +16,7 @@ const callLimiter = createRateLimiter({ limit: Math.max(1, env.callInitRateLimit
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (session.role !== "agent" || !session.ghlUserId) return NextResponse.json({ error: "This contact is not available." }, { status: 404 });
+  if (session.role !== "agent" || !session.companyId) return NextResponse.json({ error: "This contact is not available." }, { status: 404 });
   if (!isWithinRateLimit(callLimiter, session.id)) return NextResponse.json({ error: "Call actions are temporarily limited. Try again shortly." }, { status: 429 });
 
   let payload: unknown;
@@ -25,16 +26,16 @@ export async function POST(request: Request) {
 
   if (action === "start") {
     const contactId = typeof body.contactId === "string" ? body.contactId : "";
-    const contact = await getOpenContactForAgent(contactId, session.ghlUserId);
+    const contact = await getOpenContactForAgent(contactId, session.companyId, session.id);
     if (!contact?.phone) return NextResponse.json({ error: "This contact is not available for a call." }, { status: 404 });
     if (!await auditAgentPhoneReveal(contact.id)) return NextResponse.json({ error: "Call access could not be verified." }, { status: 503 });
 
-    const webRtc = getCrazytelWebRtcConfig(contact.phone);
+    const webRtc = await getCompanyCallingConfig(session.companyId, contact.phone);
     if (!webRtc.ok) return NextResponse.json({ error: webRtc.reason }, { status: 503 });
 
     try {
       const supabase = createSupabaseServiceClient();
-      const { data, error } = await supabase.rpc("start_agent_manual_call", { p_agent_id: session.id, p_contact_id: contact.id });
+      const { data, error } = await supabase.rpc("start_company_agent_call", { p_agent_id: session.id, p_contact_id: contact.id });
       if (error) return NextResponse.json({ error: "Calling is not ready yet. Contact your administrator." }, { status: 503 });
       await recordAgentWorkActivity();
       return NextResponse.json({ call: data, telephony: webRtc.config }, { headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" } });
@@ -54,13 +55,13 @@ export async function POST(request: Request) {
     try {
       const supabase = await createSupabaseServerClient();
       const { data: call, error: callError } = await supabase.from("calls")
-        .select("id, ghl_contact_id, call_source, current_state, ended_at")
+        .select("id, internal_contact_id, call_source, current_state, ended_at")
         .eq("id", callId).eq("agent_id", session.id).maybeSingle();
       if (callError || !call || call.call_source !== "agent_reported" || call.ended_at || !["requested", "ringing", "answered"].includes(call.current_state)) {
         return NextResponse.json({ error: "This call is no longer active." }, { status: 404 });
       }
       const serviceSupabase = createSupabaseServiceClient();
-      const { data, error } = await serviceSupabase.rpc("mark_agent_crazytel_call", {
+      const { data, error } = await serviceSupabase.rpc("mark_company_agent_call", {
         p_agent_id: session.id,
         p_call_id: callId,
         p_provider_call_id: providerCallId,
@@ -80,13 +81,13 @@ export async function POST(request: Request) {
     try {
       const supabase = await createSupabaseServerClient();
       const { data: call, error: callError } = await supabase.from("calls")
-        .select("id, ghl_contact_id, agent_id, current_state, call_source, ended_at")
+        .select("id, internal_contact_id, agent_id, current_state, call_source, ended_at")
         .eq("id", callId).eq("agent_id", session.id).maybeSingle();
       if (callError || !call || call.call_source !== "agent_reported" || !["requested", "ringing", "answered"].includes(call.current_state) || call.ended_at) {
         return NextResponse.json({ error: "This call is no longer active." }, { status: 404 });
       }
       const serviceSupabase = createSupabaseServiceClient();
-      const { data, error } = await serviceSupabase.rpc("end_agent_manual_call", {
+      const { data, error } = await serviceSupabase.rpc("end_company_agent_call", {
         p_agent_id: session.id,
         p_call_id: callId,
       });
@@ -121,18 +122,20 @@ export async function POST(request: Request) {
     try {
       const supabase = await createSupabaseServerClient();
       const { data: call, error: callError } = await supabase.from("calls")
-        .select("id, ghl_contact_id, agent_id, current_state, call_source, ended_at")
+        .select("id, internal_contact_id, agent_id, current_state, call_source, ended_at")
         .eq("id", callId).eq("agent_id", session.id).maybeSingle();
       if (callError || !call || call.call_source !== "agent_reported" || call.current_state !== "completed" || !call.ended_at) {
         return NextResponse.json({ error: "End the call before saving its result." }, { status: 409 });
       }
-      const contact = await getOpenContactForAgent(call.ghl_contact_id, session.ghlUserId);
+      const contact = call.internal_contact_id
+        ? await getOpenContactForAgent(call.internal_contact_id, session.companyId, session.id)
+        : null;
       if (!contact) {
         return NextResponse.json({ error: "Contact assignment or Open status changed; the call outcome cannot be saved." }, { status: 409 });
       }
 
       const serviceSupabase = createSupabaseServiceClient();
-      const { data, error } = await serviceSupabase.rpc("finish_agent_manual_call", {
+      const { data, error } = await serviceSupabase.rpc("finish_company_agent_call", {
         p_agent_id: session.id,
         p_call_id: callId,
         p_outcome: outcome,
@@ -141,8 +144,8 @@ export async function POST(request: Request) {
         p_timezone: callbackAt ? timezone : null,
       });
       if (error) return NextResponse.json({ error: "Call outcome could not be saved. Try again or contact an administrator." }, { status: 503 });
-      const ghlSync = await syncGhlManualCall(contact.id, outcome as CallStage, note, callbackAt ? new Date(callbackAt).toISOString() : null);
-      await serviceSupabase.from("calls").update({ sync_state: ghlSync.status === "synced" ? "synced" : ghlSync.status === "failed" ? "failed" : "not_configured" }).eq("id", callId).eq("agent_id", session.id);
+      const ghlSync = { status: "not_configured" as const, reason: "Call results are saved in the company CRM. Configure GHL synchronization in company settings to export them." };
+      await serviceSupabase.from("calls").update({ sync_state: "not_configured" }).eq("id", callId).eq("agent_id", session.id);
       await recordAgentWorkActivity();
       return NextResponse.json({ result: data, ghlSync });
     } catch {
