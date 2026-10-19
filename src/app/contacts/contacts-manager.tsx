@@ -6,6 +6,7 @@ import { ArrowDownUp, ArrowUp, ArrowDown, Check, ExternalLink, FileSpreadsheet, 
 import Papa from "papaparse";
 import readXlsxFile from "read-excel-file/browser";
 
+import { AdminExportLink } from "@/components/admin-export-link";
 import type { GhlContact, GhlCursor } from "@/lib/ghl";
 import { Pagination, SearchField, StatusBadge } from "@/components/ui";
 import styles from "@/app/contacts/contacts-manager.module.css";
@@ -302,6 +303,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
       <section className={styles.summaryBar}>
         <div><span className={styles.summaryIcon}>↻</span><div><strong>Company CRM contacts</strong><p>{data.total === null ? `${data.contacts.length} loaded on this page.` : `${data.total.toLocaleString()} contacts in this company.`} Contact records and assignments are managed here.</p></div></div>
         <div className={styles.actionGroup}>
+          <AdminExportLink type="contacts" />
           <button type="button" className={styles.iconAction} onClick={() => void loadPage(cursor)} disabled={loading} aria-label="Refresh contacts" title="Refresh contacts"><RefreshCw size={15} />{loading ? "Refreshing" : "Refresh"}</button>
           <button type="button" className={styles.secondaryAction} onClick={() => { setError(""); setNotice(""); setShowCreate(true); }}><UserRoundPlus size={15} />Add contact</button>
           <label className={styles.primaryAction}><Upload size={15} />Import file<input type="file" accept=".csv,.xlsx" onChange={(event) => void readImportFile(event.target.files?.[0])} hidden /></label>

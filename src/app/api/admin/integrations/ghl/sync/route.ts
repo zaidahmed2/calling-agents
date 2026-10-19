@@ -5,6 +5,7 @@ import { extractGhlContacts, extractGhlPagination } from "@/lib/ghl-contact-data
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { createCompanyCrmClient } from "@/lib/company-database";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
   const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 1000) : 100;
   const supabase = await createSupabaseServerClient();
   const service = createSupabaseServiceClient();
+  const { client: crm } = await createCompanyCrmClient(session.companyId);
   let runId = "";
 
   try {
@@ -105,30 +107,39 @@ export async function POST(request: Request) {
           created_by: session.id,
         }];
       });
-      const { data, error } = records.length ? await service.from("contacts").upsert(records, { onConflict: "company_id,external_provider,external_contact_id", ignoreDuplicates: true }).select("id") : { data: [], error: null };
+      const { data, error } = records.length ? await crm.from("contacts").upsert(records, { onConflict: "company_id,external_provider,external_contact_id", ignoreDuplicates: true }).select("id") : { data: [], error: null };
       if (error) throw new Error("GHL contacts could not be imported.");
       imported = data?.length ?? 0;
       skipped += records.length - imported;
     } else {
-      const { data: contacts, error } = await supabase.from("contacts")
+      const { data: contacts, error } = await crm.from("contacts")
         .select("id, first_name, last_name, phone, email, status, subject, notes, lead_source, external_contact_id")
         .eq("company_id", session.companyId).limit(limit);
       if (error) throw new Error("Company contacts could not be loaded for export.");
       const exportMappings = fieldMappings.filter((item) => ["export", "both"].includes(item.sync_direction));
       if (!exportMappings.some((item) => item.internal_field === "first_name")) throw new Error("Map the CRM first-name field to GHL before exporting.");
-      const standard: Record<string, keyof NonNullable<typeof contacts>[number]> = { first_name: "first_name", last_name: "last_name", phone: "phone", email: "email" };
+      const standard: Record<string, { contactField: keyof NonNullable<typeof contacts>[number]; externalFieldId: string; remoteKey: string }> = {
+        first_name: { contactField: "first_name", externalFieldId: "standard:firstName", remoteKey: "firstName" },
+        last_name: { contactField: "last_name", externalFieldId: "standard:lastName", remoteKey: "lastName" },
+        phone: { contactField: "phone", externalFieldId: "standard:phone", remoteKey: "phone" },
+        email: { contactField: "email", externalFieldId: "standard:email", remoteKey: "email" },
+      };
       for (const contact of contacts ?? []) {
         if (contact.external_contact_id && config.settings.exportUpdateExisting !== true) { skipped += 1; continue; }
         const customFields = exportMappings.flatMap((mapping) => {
-          if (mapping.internal_field in standard) return [];
-          const value = contact[mapping.internal_field as keyof typeof contact];
+          const standardMapping = standard[mapping.internal_field];
+          if (standardMapping?.externalFieldId === mapping.external_field_id) return [];
+          const value = standardMapping
+            ? contact[standardMapping.contactField]
+            : contact[mapping.internal_field as keyof typeof contact];
           return value === null || value === undefined || value === "" ? [] : [{ id: mapping.external_field_id, fieldValue: String(value) }];
         });
         const remoteContact: Record<string, unknown> = { locationId, customFields };
         for (const mapping of exportMappings) {
           const field = standard[mapping.internal_field];
-          const remoteKey = ({ first_name: "firstName", last_name: "lastName", phone: "phone", email: "email" } as Record<string, string>)[mapping.internal_field];
-          if (field && remoteKey) remoteContact[remoteKey] = contact[field] ?? undefined;
+          if (field && field.externalFieldId === mapping.external_field_id) {
+            remoteContact[field.remoteKey] = contact[field.contactField] ?? undefined;
+          }
         }
         const endpoint = contact.external_contact_id
           ? `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contact.external_contact_id)}`
@@ -145,7 +156,7 @@ export async function POST(request: Request) {
         const data = root.contact && typeof root.contact === "object" ? root.contact as Record<string, unknown> : root;
         const remoteId = typeof data.id === "string" ? data.id : contact.external_contact_id;
         if (!remoteId) { failed += 1; continue; }
-        const { error: updateError } = await service.from("contacts").update({ external_provider: "ghl", external_contact_id: remoteId })
+        const { error: updateError } = await crm.from("contacts").update({ external_provider: "ghl", external_contact_id: remoteId })
           .eq("id", contact.id).eq("company_id", session.companyId);
         if (updateError) failed += 1;
         else exported += 1;

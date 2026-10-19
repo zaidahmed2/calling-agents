@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createCompanyCrmClient } from "@/lib/company-database";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +23,11 @@ export async function GET() {
     const stats = new Map(ids.map((id) => [id, { openContacts: 0, calls: 0, callbacks: 0, activeSession: false }]));
     if (ids.length) {
       const supabase = await createSupabaseServerClient();
+      const { client: crm } = await createCompanyCrmClient(session.companyId);
       const [contacts, calls, callbacks, sessions] = await Promise.all([
-        supabase.from("contacts").select("assigned_agent_id").eq("company_id", session.companyId).eq("status", "open").in("assigned_agent_id", ids),
-        supabase.from("calls").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids),
-        supabase.from("callbacks").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids).in("status", ["scheduled", "due", "missed"]),
+        crm.from("contacts").select("assigned_agent_id").eq("company_id", session.companyId).eq("status", "open").in("assigned_agent_id", ids),
+        crm.from("calls").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids),
+        crm.from("callbacks").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids).in("status", ["scheduled", "due", "missed"]),
         supabase.from("work_sessions").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids).in("state", ["active", "paused"]),
       ]);
       for (const row of contacts.data ?? []) if (row.assigned_agent_id) stats.get(row.assigned_agent_id)!.openContacts += 1;

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/sessions/page.module.css";
+import { AdminExportLink } from "@/components/admin-export-link";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function WorkSessionsPage() {
       <section className={styles.panel}>
         <div className={styles.header}>
           <div><p className={styles.eyebrow}>Work sessions</p><h1 className={styles.title}>Session history</h1></div>
-          <span className={`${styles.statusPill} ${styles.active}`}>{session.role}</span>
+          <div className={styles.headerActions}>{session.role === "admin" ? <AdminExportLink type="sessions" /> : null}<span className={`${styles.statusPill} ${styles.active}`}>{session.role}</span></div>
         </div>
 
         {unavailable ? <div className={styles.notice} role="alert"><strong>Session data unavailable</strong><p>Check the Supabase connection and applied migrations.</p></div> : null}

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/session";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getOpenContactForAgent } from "@/lib/contacts";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { auditAgentPhoneReveal, recordAgentWorkActivity } from "@/lib/work-session-activity";
+import { createCompanyCrmClient } from "@/lib/company-database";
+import { getAgentContactFields } from "@/lib/agent-contact-fields";
 
 export const dynamic = "force-dynamic";
 const revealLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
@@ -17,14 +18,17 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const { id } = await params;
   try {
-    const supabase = await createSupabaseServerClient();
+    if (!(await getAgentContactFields(session.companyId, session.id)).includes("phone")) {
+      return NextResponse.json({ error: "Your administrator has not enabled phone-number access for you." }, { status: 403 });
+    }
+    const { client: supabase } = await createCompanyCrmClient(session.companyId);
     const { data: callback, error } = await supabase.from("callbacks").select("contact_id, internal_contact_id, agent_id, status").eq("id", id).maybeSingle();
     if (error || !callback || callback.agent_id !== session.id || !["scheduled", "due", "missed"].includes(callback.status)) {
       return NextResponse.json({ error: "Callback is not available." }, { status: 404 });
     }
     const contact = callback.internal_contact_id ? await getOpenContactForAgent(callback.internal_contact_id, session.companyId, session.id) : null;
     if (!contact?.phone) return NextResponse.json({ error: "Callback contact is not available." }, { status: 404 });
-    if (!await auditAgentPhoneReveal(contact.id)) return NextResponse.json({ error: "Number access could not be verified. Try again or contact an administrator." }, { status: 503 });
+    if (!await auditAgentPhoneReveal(contact.id, session.companyId, session.id)) return NextResponse.json({ error: "Number access could not be verified. Try again or contact an administrator." }, { status: 503 });
     return NextResponse.json({ phone: contact.phone }, { headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" } });
   } catch {
     return NextResponse.json({ error: "Could not view this number right now." }, { status: 503 });
@@ -42,9 +46,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const body = payload as Record<string, unknown>;
   try {
-    const supabase = await createSupabaseServerClient();
+    if (!session.companyId) return NextResponse.json({ error: "Company access is required." }, { status: 403 });
+    const { client: supabase, mode } = await createCompanyCrmClient(session.companyId);
     if (body.action === "complete") {
-      const { data, error } = await supabase.rpc("complete_callback", { p_callback_id: id });
+      const args = mode === "shared"
+        ? { p_callback_id: id }
+        : { p_company_id: session.companyId, p_callback_id: id, p_actor_id: session.id, p_is_admin: session.role === "admin" };
+      const { data, error } = await supabase.rpc("complete_callback", args);
       if (error) return NextResponse.json({ error: "Callback could not be completed. Apply the callback actions migration." }, { status: 503 });
       if (!data) return NextResponse.json({ error: "Callback is unavailable or no longer actionable." }, { status: 404 });
       if (session.role === "agent") await recordAgentWorkActivity();
@@ -56,7 +64,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!Number.isFinite(dueAt.getTime()) || dueAt.getTime() <= Date.now() || body.timezone.length > 80) {
         return NextResponse.json({ error: "Choose a valid future date and time." }, { status: 400 });
       }
-      const { data, error } = await supabase.rpc("reschedule_callback", { p_callback_id: id, p_due_at: dueAt.toISOString(), p_timezone: body.timezone });
+      const args = mode === "shared"
+        ? { p_callback_id: id, p_due_at: dueAt.toISOString(), p_timezone: body.timezone }
+        : { p_company_id: session.companyId, p_callback_id: id, p_actor_id: session.id, p_is_admin: session.role === "admin", p_due_at: dueAt.toISOString(), p_timezone: body.timezone };
+      const { data, error } = await supabase.rpc("reschedule_callback", args);
       if (error) return NextResponse.json({ error: "Callback could not be rescheduled. Apply the callback actions migration." }, { status: 503 });
       if (!data) return NextResponse.json({ error: "Callback is unavailable or the date/timezone is invalid." }, { status: 404 });
       if (session.role === "agent") await recordAgentWorkActivity();

@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createCompanyCrmClient } from "@/lib/company-database";
 
 export async function recordAgentWorkActivity(): Promise<void> {
   try {
@@ -9,10 +10,13 @@ export async function recordAgentWorkActivity(): Promise<void> {
   }
 }
 
-export async function auditAgentPhoneReveal(contactId: string): Promise<boolean> {
+export async function auditAgentPhoneReveal(contactId: string, companyId: string, agentId: string): Promise<boolean> {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("audit_agent_phone_reveal", { p_contact_id: contactId });
+    const { client: supabase, mode } = await createCompanyCrmClient(companyId);
+    const args = mode === "shared"
+      ? { p_contact_id: contactId }
+      : { p_company_id: companyId, p_actor_id: agentId, p_contact_id: contactId };
+    const { data, error } = await supabase.rpc("audit_agent_phone_reveal", args);
     return !error && data === true;
   } catch {
     return false;

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Activity, AudioLines, CalendarClock, ChevronRight, ContactRound, Mail, Plus, Search, UserRound, UserRoundCheck, UserRoundX, X } from "lucide-react";
 
 import styles from "@/app/agents/agents.module.css";
+import { AdminExportLink } from "@/components/admin-export-link";
 
 type Agent = {
   id: string;
@@ -113,7 +114,7 @@ export default function AgentsManager() {
     <section className={styles.directory} aria-label="Company agents">
       <header className={styles.directoryHeader}>
         <div><h2>Team directory</h2><span>{visibleAgents.length} of {agents.length} agents</span></div>
-        <label className={styles.search}><Search size={15} /><input type="search" placeholder="Find an agent" aria-label="Find an agent" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+        <div className={styles.directoryActions}><AdminExportLink type="agents" /><label className={styles.search}><Search size={15} /><input type="search" placeholder="Find an agent" aria-label="Find an agent" value={search} onChange={(event) => setSearch(event.target.value)} /></label></div>
       </header>
       <div className={styles.filterRow} role="tablist" aria-label="Filter agents">
         {(["all", "active", "inactive"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? styles.selectedFilter : styles.filterButton} onClick={() => setFilter(value)}>{value === "all" ? `All · ${agents.length}` : value === "active" ? `Active · ${activeCount}` : `Inactive · ${inactiveCount}`}</button>)}

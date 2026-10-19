@@ -8,6 +8,8 @@ import { getCompanyContact } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/calls/calls.module.css";
+import { createCompanyCrmClient } from "@/lib/company-database";
+import { AdminExportLink } from "@/components/admin-export-link";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +45,10 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
   let unavailable = false;
 
   try {
+    if (!session.companyId) throw new Error("Company access is required.");
     const supabase = await createSupabaseServerClient();
-    let query = supabase.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).order("requested_at", { ascending: false });
+    const { client: crm } = await createCompanyCrmClient(session.companyId);
+    let query = crm.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).order("requested_at", { ascending: false });
     if (q) query = query.ilike("ghl_contact_id", `%${q}%`);
     if (selectedAgent !== "all") query = query.eq("agent_id", selectedAgent);
     if (selectedState !== "all") query = query.eq("current_state", selectedState);
@@ -63,7 +67,7 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
       const callIds = calls.map((call) => call.id);
       const [contactResults, dispositionResult] = await Promise.all([
         Promise.all(ids.map((id) => session.companyId ? getCompanyContact(id, session.companyId) : Promise.resolve(null))),
-        callIds.length ? supabase.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").in("call_id", callIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+        callIds.length ? crm.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").eq("company_id", session.companyId).in("call_id", callIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
       ]);
       contacts = new Map(ids.map((id, index) => [id, contactResults[index]]));
       if (dispositionResult.error) unavailable = true;
@@ -99,6 +103,13 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
         <label>To<input type="date" name="to" defaultValue={to} /></label>
         <label>Rows<select name="size" defaultValue={pageSize}><option>10</option><option>25</option><option>50</option><option>100</option></select></label>
         <button type="submit">Apply</button>
+        <AdminExportLink type="calls" query={new URLSearchParams({
+          ...(q ? { q } : {}),
+          ...(selectedAgent !== "all" ? { agent: selectedAgent } : {}),
+          ...(selectedState !== "all" ? { state: selectedState } : {}),
+          ...(from ? { from } : {}),
+          ...(to ? { to } : {}),
+        }).toString()} />
       </form>
       {unavailable ? <div className={styles.error} role="alert">Call history could not be loaded. Check database connectivity and permissions.</div> : null}
       <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>PHONE</th><th>AGENT</th><th>DATE & TIME</th><th>DURATION</th><th>OUTCOME</th><th>STATE</th><th>DETAILS</th></tr></thead><tbody>

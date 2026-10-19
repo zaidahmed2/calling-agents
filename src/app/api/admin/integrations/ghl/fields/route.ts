@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { getCompanyIntegration } from "@/lib/integration-secrets";
+import { parseGhlCustomFields } from "@/lib/ghl-fields";
 import { getSession } from "@/lib/session";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 export const dynamic = "force-dynamic";
-
-function records(value: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
-}
 
 export async function POST() {
   const session = await getSession();
@@ -23,24 +19,28 @@ export async function POST() {
     const endpoint = new URL(`https://services.leadconnectorhq.com/locations/${encodeURIComponent(locationId)}/customFields`);
     endpoint.searchParams.set("model", "contact");
     const response = await fetch(endpoint, { headers: { Accept: "application/json", Authorization: `Bearer ${token}`, Version: "v3" }, cache: "no-store" });
+    if (response.status === 401 || response.status === 403) {
+      return NextResponse.json({ error: "GHL rejected the private integration key or it lacks permission to read contact fields. Check the key and its scopes." }, { status: 502 });
+    }
+    if (response.status === 404) {
+      return NextResponse.json({ error: "GHL could not find this location. Check the Location ID." }, { status: 502 });
+    }
+    if (response.status === 429) {
+      return NextResponse.json({ error: "GHL is temporarily rate-limiting field requests. Wait a moment and retry." }, { status: 502 });
+    }
     if (!response.ok) return NextResponse.json({ error: `GHL field discovery failed with HTTP ${response.status}.` }, { status: 502 });
     const payload: unknown = await response.json();
-    const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-    const data = root.data && typeof root.data === "object" ? root.data as Record<string, unknown> : {};
-    const fields = [...records(root.customFields), ...records(root.fields), ...records(data.customFields), ...records(data.fields)];
-    const customFields = fields.flatMap((field) => {
-      const id = typeof field.id === "string" ? field.id : typeof field.fieldId === "string" ? field.fieldId : "";
-      const name = typeof field.name === "string" ? field.name : typeof field.fieldName === "string" ? field.fieldName : typeof field.key === "string" ? field.key : "";
-      if (!id || !name) return [];
-      return [{ id, name, type: typeof field.dataType === "string" ? field.dataType : typeof field.type === "string" ? field.type : null, metadata: field }];
-    });
+    const parsedFields = parseGhlCustomFields(payload);
+    if (!parsedFields.recognized) {
+      return NextResponse.json({ error: "GHL returned an unexpected contact-field response. Cached fields were not changed; retry or check the GHL integration." }, { status: 502 });
+    }
     const standardFields = [
       { id: "standard:firstName", name: "First name", type: "TEXT", metadata: { standard: true } },
       { id: "standard:lastName", name: "Last name", type: "TEXT", metadata: { standard: true } },
       { id: "standard:phone", name: "Phone", type: "PHONE", metadata: { standard: true } },
       { id: "standard:email", name: "Email", type: "EMAIL", metadata: { standard: true } },
     ];
-    const normalized = [...new Map([...standardFields, ...customFields].map((field) => [field.id, field])).values()];
+    const normalized = [...new Map([...standardFields, ...parsedFields.fields].map((field) => [field.id, field])).values()];
     const service = createSupabaseServiceClient();
     const { error: upsertError } = normalized.length ? await service.from("company_external_fields").upsert(normalized.map((field) => ({
       company_id: session.companyId!, provider: "ghl", external_field_id: field.id, name: field.name,

@@ -6,8 +6,10 @@ import { WorkspaceShell } from "@/components/workspace-shell";
 import CallbackList, { type CallbackCardData } from "@/app/callbacks/callback-list";
 import { getCompanyContact } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/callbacks/callback-list.module.css";
+import { createCompanyCrmClient } from "@/lib/company-database";
+import { AdminExportLink } from "@/components/admin-export-link";
+import { getAgentContactFields } from "@/lib/agent-contact-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +36,13 @@ export default async function CallbackQueuePage({ searchParams }: { searchParams
   let unavailable = false;
   let total = 0;
   try {
-    const supabase = await createSupabaseServerClient();
+    if (!session.companyId) throw new Error("Company access is required.");
+    const agentFields = session.role === "agent" ? new Set(await getAgentContactFields(session.companyId, session.id)) : new Set<string>();
+    const { client: supabase } = await createCompanyCrmClient(session.companyId);
     const { data, error, count } = await supabase
       .from("callbacks")
       .select("id, contact_id, internal_contact_id, agent_id, due_at, timezone, status, source_call_id", { count: "exact" })
+      .eq("company_id", session.companyId)
       .in("status", ["scheduled", "due", "missed"])
       .order("due_at", { ascending: true })
       .range((page - 1) * pageSize, page * pageSize - 1);
@@ -56,12 +61,26 @@ export default async function CallbackQueuePage({ searchParams }: { searchParams
       const notes = new Map((dispositions.data ?? []).map((item) => [item.call_id, item.note]));
       callbackData = rows.map((row, index) => {
         const contact = contacts[index];
+        const contactDetails = contact && session.role === "agent"
+          ? [...agentFields].flatMap((field) => {
+            if (field === "name" || field === "phone" || field === "status") return [];
+            const standard = {
+              email: contact.email,
+              subject: contact.subject,
+              notes: contact.notes,
+              lead_source: contact.leadSource,
+            }[field as "email" | "subject" | "notes" | "lead_source"];
+            const custom = field.startsWith("custom:") ? contact.customFields[field.slice(7)] : undefined;
+            const value = standard ?? custom;
+            return typeof value === "string" && value.trim() ? [value.trim()] : [];
+          })
+          : [];
         return {
           id: row.id,
           contactId: session.role === "admin" ? row.internal_contact_id ?? "" : "",
-          name: contact?.name ?? (session.role === "admin" ? `Contact ${row.contact_id}` : "Contact"),
-          suburb: contact?.suburb ?? null,
-          phone: contact ? session.role === "admin" ? contact.phone : contact.maskedPhone : null,
+          name: contact?.name && (session.role === "admin" || agentFields.has("name")) ? contact.name : session.role === "admin" ? `Contact ${row.contact_id}` : "Contact",
+          contactDetails,
+          phone: contact ? session.role === "admin" ? contact.phone : agentFields.has("phone") ? contact.maskedPhone : null : null,
           isAgent: session.role === "agent",
           dueAt: row.due_at,
           timezone: row.timezone,
@@ -87,6 +106,7 @@ export default async function CallbackQueuePage({ searchParams }: { searchParams
         <div><span>OVERDUE</span><strong>{unavailable ? "—" : overdue}</strong></div>
         <div className={styles.sourceNote}><CalendarClock size={16} /><span>Saved callbacks only</span></div>
       </section>
+      {session.role === "admin" ? <AdminExportLink type="callbacks" /> : null}
       {callbackData.length ? <CallbackList callbacks={callbackData} page={page} pageSize={pageSize} total={total} /> : unavailable ? null : <EmptyState title="No callbacks to work" detail="Saved follow-ups will appear here when scheduled." icon={<CalendarClock size={18} />} />}
     </WorkspaceShell>
   );

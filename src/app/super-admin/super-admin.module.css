@@ -18,9 +18,9 @@
 .companyCreate header div { color: #17231d; }
 .companyCreate h2, .companyListHeader h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
 .companyCreate p { margin: 4px 0 0; color: #6b7970; font-size: 12px; }
-.companyFields { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
+.companyFields { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
 .companyFields label { display: grid; gap: 6px; color: #4b5d51; font-size: 11px; font-weight: 700; }
-.companyFields input { height: 40px; padding: 0 11px; border: 1px solid #d8e2db; border-radius: 2px; color: #17231d; background: #fff; font: inherit; font-size: 13px; }
+.companyFields input, .companyFields select { height: 40px; padding: 0 11px; border: 1px solid #d8e2db; border-radius: 2px; color: #17231d; background: #fff; font: inherit; font-size: 13px; }
 .companyFields button { height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; border: 0; background: #176c4a; color: white; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .companyFields button:disabled, .companyToggle:disabled { cursor: not-allowed; opacity: .55; }
 .platformMessage { margin: 14px 0 0; padding: 12px 14px; font-size: 13px; }
@@ -41,6 +41,22 @@
 .companyStatus.inactive, .companyStatus.setup { background: #fff4dc; color: #8b671e; }
 .companyToggle { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #dce5df; background: white; color: #52675b; cursor: pointer; }
 .companyEmpty { padding: 24px 20px; color: #748178; font-size: 13px; }
+.companyDatabase { grid-column: 2 / -1; display: grid; gap: 8px; padding: 10px 0 4px; border-top: 1px solid #edf1ee; color: #52675b; font-size: 11px; }
+.companyDatabase strong { color: #34483b; font-size: 11px; text-transform: capitalize; }
+.companyDatabase p { margin: 0; color: #718077; line-height: 1.5; }
+.companyDatabase code { overflow-wrap: anywhere; }
+.databaseSummary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.databaseExpand { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid #d8e2db; background: #fff; color: #176c4a; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
+.projectRef { color: #718077; }
+.databaseSetup { display: grid; gap: 10px; padding-top: 5px; }
+.databaseFields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: end; }
+.databaseFields label { display: grid; gap: 5px; color: #4b5d51; font-size: 10px; font-weight: 700; }
+.databaseFields input { min-width: 0; height: 36px; padding: 0 9px; border: 1px solid #d8e2db; border-radius: 2px; color: #17231d; background: #fff; font: inherit; font-size: 12px; }
+.databaseFields button { height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 11px; border: 0; background: #176c4a; color: white; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.databaseFields .verifyDatabase { border: 1px solid #176c4a; background: #fff; color: #176c4a; }
+.databaseFields button:disabled { cursor: not-allowed; opacity: .55; }
+.databaseError { padding: 10px 12px; border-left: 3px solid #ae3931; background: #fff0ee; color: #8c2626 !important; }
+.databaseSaved { color: #176c4a !important; }
 @media (max-width: 720px) {
   .platformHeader { padding: 0 20px; }
   .platformContent { padding-top: 30px; }
@@ -51,4 +67,6 @@
   .companyFields button { width: 100%; }
   .companyRow { grid-template-columns: 34px minmax(0, 1fr) auto 32px 32px; gap: 7px; padding: 12px; }
   .companyAdmin { display: none; }
+  .companyDatabase { grid-column: 1 / -1; }
+  .databaseFields { grid-template-columns: 1fr; }
 }

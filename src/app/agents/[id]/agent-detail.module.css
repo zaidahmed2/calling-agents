@@ -32,6 +32,22 @@
 .metricCallbacks::before { background:#bd6a50!important }
 .metricCallbacks>i { color:#a8513a!important;background:#fff0e9!important }
 .panel { min-width:0;margin-bottom:14px;border:1px solid var(--border);border-radius:7px;background:#fff;box-shadow:var(--shadow-soft);overflow:hidden }
+.visibilityPanel { display:grid;gap:15px;margin:0 0 15px;padding:16px;border:1px solid var(--border);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft); }
+.visibilityPanel>header { display:flex;align-items:flex-start;gap:11px; }
+.visibilityPanel>header h2 { margin:4px 0;color:var(--text);font-size:13px; }
+.visibilityPanel>header p { margin:0;color:var(--text-faint);font-size:9px; }
+.visibilityIcon { width:32px;height:32px;display:grid;place-items:center;border-radius:6px;color:#466d10;background:#edf4e2; }
+.visibilityFields { display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:7px; }
+.visibilityFields label { display:flex;align-items:center;gap:8px;min-height:34px;padding:7px 9px;border:1px solid #edf0e9;border-radius:5px;color:var(--text-soft);background:#fbfcf9;font-size:10px;cursor:pointer; }
+.visibilityFields input { accent-color:#466d10; }
+.visibilityPanel>footer { display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid #eff1ed; }
+.visibilityPanel>footer small,.visibilityMessage { color:var(--text-faint);font-size:9px; }
+.visibilityPanel>footer button { display:inline-flex;align-items:center;gap:6px;min-height:33px;padding:0 10px;border:1px solid #466d10;border-radius:5px;color:#fff;background:#466d10;font:inherit;font-size:10px;font-weight:750;cursor:pointer; }
+.visibilityPanel>footer button:disabled { opacity:.55;cursor:wait; }
+.visibilityMessage { margin:0; }
+.visibilityError,.visibilityNotice { margin:0;padding:8px 10px;border-radius:5px;font-size:10px; }
+.visibilityError { color:#923f36;background:#fff0ed; }
+.visibilityNotice { color:#367052;background:#eaf4ed; }
 .panelHeader { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,#fbfcf9,#fff 48%) }
 .sectionEyebrow { color:#75816b;font-size:8px;font-weight:850;letter-spacing:.9px }
 .panelHeader h2 { margin:4px 0 0;color:var(--text);font-size:14px;font-weight:800 }

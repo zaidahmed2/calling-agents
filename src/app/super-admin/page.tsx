@@ -21,8 +21,16 @@ export default async function SuperAdminPage() {
     const { data, error } = await supabase.from("companies")
       .select("id, name, slug, initial_admin_email, status, created_at")
       .order("created_at", { ascending: false });
-    if (error) initialError = "Company records could not be loaded.";
-    else companies = (data ?? []) as CompanySummary[];
+    const { data: databases, error: databaseError } = await supabase.from("company_databases")
+      .select("company_id, database_mode, project_ref, connection_status, tenant_schema_version, migration_status, last_connected_at, provisioning_error_category");
+    if (error || databaseError) initialError = "Company records could not be loaded.";
+    else {
+      const databaseByCompany = new Map((databases ?? []).map((item) => [item.company_id, item]));
+      companies = (data ?? []).map((company) => ({
+        ...company,
+        database: databaseByCompany.get(company.id) ?? null,
+      })) as CompanySummary[];
+    }
   } catch {
     initialError = "Company records could not be loaded.";
   }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, CircleHelp, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Check, ChevronDown, CircleHelp, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 
 import styles from "@/app/settings/settings.module.css";
 
@@ -24,6 +24,117 @@ const standardFields: ExternalField[] = [
 ];
 
 function emptyProvider(): ProviderSettings { return { enabled: false, connectionStatus: "not_configured", lastError: null, settings: {} }; }
+
+function mappingDefaults(fields: ExternalField[], saved: ConsoleData["mappings"]): Mapping[] {
+  const normalizedFields = [...standardFields, ...fields.filter((field) => field.available)];
+  const savedByInternal = new Map(saved.map((mapping) => [mapping.internal_field, mapping]));
+  const usedExternal = new Set<string>();
+  return internalFields.map(([internalField, label]) => {
+    const existing = savedByInternal.get(internalField);
+    if (existing) {
+      usedExternal.add(existing.external_field_id);
+      return { internalField, externalFieldId: existing.external_field_id, syncDirection: existing.sync_direction };
+    }
+
+    const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const suggested = normalizedFields.find((field) =>
+      !usedExternal.has(field.external_field_id)
+      && field.name.toLowerCase().replace(/[^a-z0-9]/g, "") === normalizedLabel,
+    );
+    if (!suggested) return { internalField, externalFieldId: "", syncDirection: "both" };
+    usedExternal.add(suggested.external_field_id);
+    return { internalField, externalFieldId: suggested.external_field_id, syncDirection: "both" };
+  });
+}
+
+function GhlFieldPicker({ fields, value, disabledIds, ariaLabel, onChange }: {
+  fields: ExternalField[];
+  value: string;
+  disabledIds: Set<string>;
+  ariaLabel: string;
+  onChange: (fieldId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const selectedField = fields.find((field) => field.external_field_id === value);
+  const filteredFields = fields.filter((field) =>
+    `${field.name} ${field.external_field_id} ${field.field_type ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [open]);
+
+  return <div className={styles.fieldPicker} ref={containerRef}>
+    <button
+      type="button"
+      className={styles.fieldPickerTrigger}
+      aria-label={ariaLabel}
+      aria-expanded={open}
+      aria-haspopup="listbox"
+      onClick={() => setOpen((current) => !current)}
+      ref={triggerRef}
+    >
+      <span>{selectedField
+        ? `${selectedField.name}${selectedField.external_field_id.startsWith("standard:") ? " · Standard" : " · Custom"}`
+        : value ? `Unavailable field · ${value}` : "Choose a GHL field"}</span>
+      <ChevronDown size={14} aria-hidden="true" />
+    </button>
+    {open ? <div className={styles.fieldPickerMenu} onKeyDown={(event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }}>
+      <label className={styles.fieldPickerSearch}>
+        <Search size={14} aria-hidden="true" />
+        <input
+          type="search"
+          autoFocus
+          value={query}
+          placeholder="Search GHL fields"
+          aria-label="Search GHL fields"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setOpen(false);
+              triggerRef.current?.focus();
+            } else if (event.key === "ArrowDown") {
+              event.preventDefault();
+              listRef.current?.querySelector<HTMLButtonElement>('[role="option"]:not(:disabled)')?.focus();
+            }
+          }}
+        />
+      </label>
+      <div className={styles.fieldPickerOptions} role="listbox" aria-label="GoHighLevel fields" ref={listRef}>
+        {value ? <button type="button" role="option" aria-selected="false" onClick={() => { onChange(""); setQuery(""); setOpen(false); triggerRef.current?.focus(); }}>Clear selected field</button> : null}
+        {filteredFields.map((field) => {
+          const selected = field.external_field_id === value;
+          return <button
+            type="button"
+            role="option"
+            aria-selected={selected}
+            key={field.external_field_id}
+            disabled={!selected && disabledIds.has(field.external_field_id)}
+            onClick={() => { onChange(field.external_field_id); setQuery(""); setOpen(false); triggerRef.current?.focus(); }}
+          >
+            <span>{field.name}</span>
+            <small>{field.external_field_id.startsWith("standard:") ? "Standard" : "Custom"}{field.field_type ? ` · ${field.field_type}` : ""}</small>
+          </button>;
+        })}
+        {!filteredFields.length ? <p role="status">No matching GHL fields.</p> : null}
+      </div>
+    </div> : null}
+  </div>;
+}
 
 export default function SettingsConsole() {
   const [data, setData] = useState<ConsoleData>({ integrations: { ghl: null, crazytel: null }, hasCredentials: {}, fields: [], mappings: [], syncRuns: [] });
@@ -55,7 +166,7 @@ export default function SettingsConsole() {
         outboundUriTemplate: String(crazytel.settings.outboundUriTemplate ?? ""),
         callerId: String(crazytel.settings.callerId ?? ""),
       });
-      setMappings(result.mappings.map((item) => ({ internalField: item.internal_field, externalFieldId: item.external_field_id, syncDirection: item.sync_direction })));
+      setMappings(mappingDefaults(result.fields, result.mappings));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Company settings could not be loaded.");
     } finally {
@@ -83,7 +194,7 @@ export default function SettingsConsole() {
           outboundUriTemplate: String(crazytel.settings.outboundUriTemplate ?? ""),
           callerId: String(crazytel.settings.callerId ?? ""),
         });
-        setMappings(result.mappings.map((item) => ({ internalField: item.internal_field, externalFieldId: item.external_field_id, syncDirection: item.sync_direction })));
+        setMappings(mappingDefaults(result.fields, result.mappings));
         setLoading(false);
       })
       .catch((loadError: unknown) => {
@@ -129,6 +240,43 @@ export default function SettingsConsole() {
       await load();
     } catch {
       setTestResults((current) => ({ ...current, [provider]: { state: "failure", message: "Could not reach the local app endpoint." } }));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function connectGhl() {
+    setBusy("connect-ghl");
+    setError("");
+    setNotice("");
+    setTestResults((current) => ({ ...current, ghl: { state: "checking", message: "Saving settings and connecting to GoHighLevel..." } }));
+    try {
+      const saveResponse = await fetch("/api/admin/integrations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "ghl", enabled: true, credentials: { privateIntegrationKey: ghlKey }, settings: ghlSettings }),
+      });
+      const saveResult = await saveResponse.json() as { error?: string };
+      if (!saveResponse.ok) throw new Error(saveResult.error ?? "GHL settings could not be saved.");
+      setGhlKey("");
+
+      const testResponse = await fetch("/api/admin/integrations/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "ghl" }),
+      });
+      const testResult = await testResponse.json() as { state?: string; message?: string };
+      setTestResults((current) => ({ ...current, ghl: { state: testResult.state ?? "failure", message: testResult.message ?? "GHL connection check failed." } }));
+      if (!testResponse.ok || testResult.state !== "success") throw new Error(testResult.message ?? "GHL connection failed. Check the private integration key, location ID, and permissions.");
+
+      const fieldsResponse = await fetch("/api/admin/integrations/ghl/fields", { method: "POST" });
+      const fieldsResult = await fieldsResponse.json() as { fields?: ExternalField[]; error?: string };
+      if (!fieldsResponse.ok) throw new Error(fieldsResult.error ?? "GHL connected, but its contact fields could not be loaded.");
+      await load();
+      setNotice(`Connected to GHL. ${fieldsResult.fields?.length ?? 0} contact fields are ready; review the suggested CRM mappings below.`);
+    } catch (connectError) {
+      await load();
+      setError(connectError instanceof Error ? connectError.message : "GHL could not be connected.");
     } finally {
       setBusy("");
     }
@@ -212,6 +360,7 @@ export default function SettingsConsole() {
   const ghl = data.integrations.ghl ?? emptyProvider();
   const crazytel = data.integrations.crazytel ?? emptyProvider();
   const availableFields = [...new Map([...standardFields, ...data.fields.filter((field) => field.available)].map((field) => [field.external_field_id, field])).values()];
+  const discoveredCustomFields = data.fields.filter((field) => field.available && !field.external_field_id.startsWith("standard:"));
   const lastGhlTest = testResults.ghl;
   const lastCrazytelTest = testResults.crazytel;
 
@@ -230,18 +379,52 @@ export default function SettingsConsole() {
             <label>Location ID<input value={ghlSettings.locationId} onChange={(event) => setGhlSettings((current) => ({ ...current, locationId: event.target.value }))} placeholder="GHL location ID" /></label>
             <div className={styles.toggleGroup}><label><input type="checkbox" checked={ghlSettings.importEnabled} onChange={(event) => setGhlSettings((current) => ({ ...current, importEnabled: event.target.checked }))} />Allow manual import</label><label><input type="checkbox" checked={ghlSettings.exportEnabled} onChange={(event) => setGhlSettings((current) => ({ ...current, exportEnabled: event.target.checked }))} />Allow manual export</label></div>
             <label className={styles.toggleRow}><input type="checkbox" checked={ghlSettings.exportUpdateExisting} onChange={(event) => setGhlSettings((current) => ({ ...current, exportUpdateExisting: event.target.checked }))} />Allow export to update linked GHL contacts</label>
-            <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void save("ghl", ghl.enabled)} disabled={busy !== ""}><Save size={14} /> Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void test("ghl")} disabled={busy !== ""}>{busy === "test-ghl" ? "Checking..." : "Test connection"}</button><button type="button" className={styles.secondaryButton} onClick={() => void disconnect("ghl")} disabled={busy !== ""}>Disconnect</button></div>
+            <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void connectGhl()} disabled={busy !== "" || !ghlSettings.locationId.trim() || (!ghlKey.trim() && !data.hasCredentials.ghl)}><RefreshCw size={14} />{busy === "connect-ghl" ? "Connecting..." : "Connect & load fields"}</button><button type="button" className={styles.secondaryButton} onClick={() => void save("ghl", ghl.enabled)} disabled={busy !== ""}><Save size={14} /> Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void test("ghl")} disabled={busy !== ""}>{busy === "test-ghl" ? "Checking..." : "Test connection"}</button><button type="button" className={styles.secondaryButton} onClick={() => void disconnect("ghl")} disabled={busy !== ""}>Disconnect</button></div>
             {lastGhlTest ? <p className={`${styles.inlineResult} ${lastGhlTest.state === "success" ? styles.success : lastGhlTest.state === "blocked" ? styles.blocked : styles.failure}`}>{lastGhlTest.message}</p> : null}
             {ghl.lastError ? <p className={`${styles.inlineResult} ${styles.failure}`}>{ghl.lastError}</p> : null}
           </div>
-          <section className={styles.mappingPanel}><header><div><strong>GHL contact fields</strong><small>Discover fields from this location and map CRM fields.</small></div><button type="button" className={styles.secondaryButton} onClick={() => void refreshFields()} disabled={busy !== ""}><RefreshCw size={14} />{busy === "fields" ? "Refreshing..." : "Refresh fields"}</button></header>
-            <div className={styles.mappingRows}>{mappings.map((mapping, index) => <div className={styles.mappingRow} key={`${mapping.internalField}-${index}`}>
-              <select aria-label="Internal field" value={mapping.internalField} onChange={(event) => setMappings((current) => current.map((item, row) => row === index ? { ...item, internalField: event.target.value } : item))}><option value="">CRM field</option>{internalFields.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
-              <select aria-label="GHL field" value={mapping.externalFieldId} onChange={(event) => setMappings((current) => current.map((item, row) => row === index ? { ...item, externalFieldId: event.target.value } : item))}><option value="">GHL field</option>{availableFields.map((field) => <option key={field.external_field_id} value={field.external_field_id}>{field.name}{field.field_type ? ` · ${field.field_type}` : ""}</option>)}</select>
-              <select aria-label="Synchronization direction" value={mapping.syncDirection} onChange={(event) => setMappings((current) => current.map((item, row) => row === index ? { ...item, syncDirection: event.target.value } : item))}><option value="both">Both</option><option value="import">Import</option><option value="export">Export</option><option value="disabled">Disabled</option></select>
-              <button type="button" className={styles.iconButton} onClick={() => setMappings((current) => current.filter((_, row) => row !== index))} aria-label="Remove mapping"><Trash2 size={14} /></button>
-            </div>)}
-            <div className={styles.actionRow}><button type="button" className={styles.secondaryButton} onClick={() => setMappings((current) => [...current, { internalField: "", externalFieldId: "", syncDirection: "both" }])}><Plus size={14} /> Add mapping</button><button type="button" className={styles.testButton} onClick={() => void saveMappings()} disabled={busy !== ""}><Save size={14} />{busy === "mappings" ? "Saving..." : "Save mappings"}</button></div></div>
+          <section className={styles.mappingPanel}>
+            <header>
+              <div><strong>Connect your CRM fields to GoHighLevel</strong><small>Choose one CRM field on the left and the matching GHL field on the right. GHL fields load after connecting.</small></div>
+              <button type="button" className={styles.secondaryButton} onClick={() => void refreshFields()} disabled={busy !== ""}><RefreshCw size={14} />{busy === "fields" ? "Loading GHL fields..." : "Refresh GHL fields"}</button>
+            </header>
+            <div className={styles.mappingColumns} aria-hidden="true">
+              <div><strong>Your CRM fields</strong><small>{internalFields.length} available fields</small></div>
+              <span />
+              <div><strong>GoHighLevel fields</strong><small>{discoveredCustomFields.length} custom · {standardFields.length} standard</small></div>
+              <span>Sync direction</span>
+            </div>
+            {!data.fields.some((field) => field.available) && !ghl.connectionStatus.includes("connected")
+              ? <p className={styles.mappingHint}>Connect GoHighLevel above to load your location&apos;s custom fields.</p>
+              : !discoveredCustomFields.length
+                ? <p className={styles.mappingHint}>No GHL custom fields loaded yet. Connect or refresh fields to see the fields from your location.</p>
+                : null}
+            <div className={styles.mappingRows}>{mappings.map((mapping, index) => {
+              const usedCrmFields = new Set(mappings.flatMap((item, row) => row !== index && item.internalField ? [item.internalField] : []));
+              const usedGhlFields = new Set(mappings.flatMap((item, row) => row !== index && item.externalFieldId ? [item.externalFieldId] : []));
+              return <div className={styles.mappingRow} key={`${mapping.internalField || "new"}-${index}`}>
+                <select aria-label={`CRM field for mapping ${index + 1}`} value={mapping.internalField} onChange={(event) => setMappings((current) => current.map((item, row) => row === index ? { ...item, internalField: event.target.value } : item))}>
+                  <option value="">Choose a CRM field</option>
+                  {internalFields.map(([id, label]) => <option key={id} value={id} disabled={usedCrmFields.has(id)}>{label}</option>)}
+                </select>
+                <span className={styles.mappingArrow} aria-hidden="true"><ArrowRight size={16} /></span>
+                <GhlFieldPicker
+                  ariaLabel={`GoHighLevel field for mapping ${index + 1}`}
+                  fields={availableFields}
+                  value={mapping.externalFieldId}
+                  disabledIds={usedGhlFields}
+                  onChange={(externalFieldId) => setMappings((current) => current.map((item, row) => row === index ? { ...item, externalFieldId } : item))}
+                />
+                <select aria-label={`Sync direction for mapping ${index + 1}`} value={mapping.syncDirection} onChange={(event) => setMappings((current) => current.map((item, row) => row === index ? { ...item, syncDirection: event.target.value } : item))}>
+                  <option value="both">Both ways</option><option value="import">GHL → CRM</option><option value="export">CRM → GHL</option><option value="disabled">Disabled</option>
+                </select>
+                <button type="button" className={styles.removeMapping} onClick={() => setMappings((current) => current.filter((_, row) => row !== index))} aria-label={`Remove mapping ${index + 1}`}><Trash2 size={14} /></button>
+              </div>;
+            })}</div>
+            <div className={styles.mappingFooter}>
+              <button type="button" className={styles.secondaryButton} onClick={() => setMappings((current) => [...current, { internalField: "", externalFieldId: "", syncDirection: "both" }])} disabled={busy !== "" || mappings.length >= 50}><Plus size={14} />Add field mapping</button>
+              <button type="button" className={styles.testButton} onClick={() => void saveMappings()} disabled={busy !== ""}><Save size={14} />{busy === "mappings" ? "Saving mappings..." : "Save mappings"}</button>
+            </div>
           </section>
           <div className={styles.syncControls}><div><strong>Manual synchronization</strong><small>Automatic and bidirectional sync remain off by default.</small></div><div className={styles.actionRow}><button type="button" className={styles.secondaryButton} disabled={!ghlSettings.importEnabled || busy !== ""} onClick={() => void sync("import")}>{busy === "import" ? "Importing..." : "Import from GHL"}</button><button type="button" className={styles.secondaryButton} disabled={!ghlSettings.exportEnabled || busy !== ""} onClick={() => void sync("export")}>{busy === "export" ? "Exporting..." : "Export to GHL"}</button></div></div>
           <div className={styles.syncHistory}><strong>Recent synchronization runs</strong>{data.syncRuns.length ? data.syncRuns.map((run) => <article key={run.id}><div><b>{run.operation.replaceAll("_", " ")}</b><span className={styles[run.state] ?? ""}>{run.state}</span></div><small>{new Date(run.started_at).toLocaleString()} · {run.imported_count} imported · {run.exported_count} exported · {run.skipped_count} skipped · {run.failed_count} failed</small></article>) : <p>No synchronization runs recorded.</p>}</div>
