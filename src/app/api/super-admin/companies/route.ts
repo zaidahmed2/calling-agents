@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
+import type { CompanyDatabaseMode } from "@/lib/company-database";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,13 @@ export async function GET() {
       .select("id, name, slug, initial_admin_email, status, created_at")
       .order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: "Companies could not be loaded." }, { status: 503 });
-    return NextResponse.json({ companies: data ?? [] }, { headers: { "Cache-Control": "no-store" } });
+    const { data: databases, error: databaseError } = await supabase.from("company_databases")
+      .select("company_id, database_mode, project_ref, connection_status, tenant_schema_version, migration_status, last_connected_at, provisioning_error_category");
+    if (databaseError) return NextResponse.json({ error: "Company database settings could not be loaded." }, { status: 503 });
+    const databaseByCompany = new Map((databases ?? []).map((item) => [item.company_id, item]));
+    return NextResponse.json({
+      companies: (data ?? []).map((company) => ({ ...company, database: databaseByCompany.get(company.id) ?? null })),
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "Companies could not be loaded." }, { status: 503 });
   }
@@ -40,6 +47,10 @@ export async function POST(request: Request) {
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const email = typeof body.adminEmail === "string" ? body.adminEmail.trim().toLowerCase() : "";
+  if (body.databaseMode !== undefined && body.databaseMode !== "shared" && body.databaseMode !== "external") {
+    return NextResponse.json({ error: "Choose a supported company database mode." }, { status: 400 });
+  }
+  const databaseMode: CompanyDatabaseMode = body.databaseMode === "external" ? "external" : "shared";
   if (name.length < 2 || name.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Enter a company name and valid administrator email." }, { status: 400 });
   }
@@ -55,10 +66,23 @@ export async function POST(request: Request) {
     name,
     slug,
     initial_admin_email: email,
-    status: "active",
+    status: databaseMode === "shared" ? "active" : "setup",
     created_by: session.id,
   }).select("id, name, slug, initial_admin_email, status, created_at").single();
   if (companyError || !company) return NextResponse.json({ error: "Company could not be created." }, { status: 503 });
+
+  const { error: databaseError } = await service.from("company_databases").insert({
+    company_id: company.id,
+    database_mode: databaseMode,
+    connection_status: databaseMode === "shared" ? "ready" : "pending",
+    tenant_schema_version: databaseMode === "shared" ? "shared" : null,
+    migration_status: databaseMode === "shared" ? "current" : "pending",
+    provisioning_error_category: null,
+  });
+  if (databaseError) {
+    await service.from("companies").delete().eq("id", company.id);
+    return NextResponse.json({ error: "Company database settings could not be initialized." }, { status: 503 });
+  }
 
   const rollbackCompany = async (userId?: string) => {
     if (userId) {
@@ -133,6 +157,13 @@ export async function PATCH(request: Request) {
   if (name !== undefined) updates.name = name;
   if (Object.keys(updates).length === 0) return NextResponse.json({ error: "No company changes were supplied." }, { status: 400 });
   const supabase = await createSupabaseServerClient();
+  if (status === "active") {
+    const { data: database, error: databaseError } = await supabase.from("company_databases")
+      .select("connection_status, migration_status").eq("company_id", id).maybeSingle();
+    if (databaseError || !database || database.connection_status !== "ready" || database.migration_status !== "current") {
+      return NextResponse.json({ error: "Company database setup must pass its connection and schema checks before activation." }, { status: 409 });
+    }
+  }
   const { data, error } = await supabase.from("companies").update(updates).eq("id", id).select("name, status").maybeSingle();
   if (error) return NextResponse.json({ error: "Company status could not be updated." }, { status: 503 });
   if (!data) return NextResponse.json({ error: "Company was not found." }, { status: 404 });

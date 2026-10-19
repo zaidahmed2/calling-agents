@@ -15,7 +15,7 @@ OTP_RATE_LIMIT_PER_MINUTE=5
 
 The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name is also accepted. The service role key is used only by authenticated server routes for invitations and protected company operations. Do not put it, the database password, JWT secret, integration encryption key, or provider secrets in a `NEXT_PUBLIC_` variable or browser code.
 
-GHL and Crazytel account settings are configured separately by each company and encrypted using `INTEGRATION_ENCRYPTION_KEY`. Generate a 32-byte key, encode it as Base64 or 64 hexadecimal characters, and store it only in the server secret manager. Back it up securely: provider credentials cannot be recovered if the key is lost.
+GHL, Crazytel, and external company database credentials are encrypted using `INTEGRATION_ENCRYPTION_KEY`. This is an app-server key, separate from both the central Supabase keys and each company's project keys. Generate a 32-byte key, encode it as Base64 or 64 hexadecimal characters, and store it only in the app's server environment. Restart or redeploy after changing it. Back it up securely: encrypted credentials cannot be recovered if the key is lost.
 
 ## Apply migrations
 
@@ -28,6 +28,18 @@ npx supabase db push
 ```
 
 The migrations create the application tables and then harden RLS policies. Review the SQL in `supabase/migrations` before applying it to a non-development project. No customer data or demo fixture rows are included.
+
+Migration `20261018_000016_company_database_registry.sql` adds the central company database registry. Apply the central migration before deploying code that uses company database routing. Existing companies are registered in shared mode; newly created companies can select shared mode or external Supabase mode.
+
+## Company-specific Supabase projects
+
+External company projects use the separate, minimal tenant schema in `supabase/tenant-migrations/20261018_000001_tenant_crm.sql`. Apply and review this migration in the company's own Supabase project (for example, using that project's SQL Editor) before entering its credentials in `/super-admin`. It creates the tenant CRM tables, indexes, foreign keys, lifecycle RPCs and RLS/grants; it does not apply the central platform migration history or change central data.
+
+Only Supabase-managed HTTPS project URLs (`https://<project-ref>.supabase.co`) are currently accepted. In `/super-admin`, open the company's database setup, enter the project ID (the server constructs its `https://<project-id>.supabase.co` URL), publishable key, and service-role key, then choose **Save / Configure**. The server encrypts the submitted credentials with `INTEGRATION_ENCRYPTION_KEY` and never returns them. After applying the tenant migration, choose **Verify Database**; this checks for tenant schema version `20261018_000001` and activates the company only after success. A failed verification leaves the company in setup and the saved credentials available for retry. The service-role key bypasses tenant RLS; it is only used server-side after the central auth/membership/role check, and every CRM query is additionally scoped to the resolved company and/or authorized agent.
+
+The app does not provision projects or run SQL against an external project. The project owner must apply the tenant migration first. Keep tenant migrations append-only and versioned; after changing tenant schema, add a new migration and update the application compatibility check deliberately.
+
+The current company database is selected from central `company_databases` metadata for each server CRM operation. Company authentication, memberships, invitations, integration configuration/credentials and work sessions remain central. Contacts, assignment history, calls, dispositions, callbacks, and company operational/audit events use the selected CRM database. `contacts_cache` and historical GHL-only rows are not transferred by this feature.
 
 Migration `20261016_000015_multitenant_foundation.sql` adds a `Legacy Workspace`, backfills existing profiles and operational rows into it, preserves existing external GHL IDs/history, and adds company memberships, internal contacts, integrations, mappings, and company-aware authorization. New internal contacts start empty; import them from GHL only if that company configures GHL. This migration has not been applied by the app.
 

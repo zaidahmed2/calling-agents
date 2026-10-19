@@ -12,6 +12,8 @@ import { recordAgentWorkActivity } from "@/lib/work-session-activity";
 import AgentCallWorkflow from "@/app/contacts/[id]/agent-call-workflow";
 import ContactEditor from "@/app/contacts/[id]/contact-editor";
 import { listActiveAgentProfiles } from "@/lib/assignable-agents";
+import { createCompanyCrmClient } from "@/lib/company-database";
+import { getAgentContactFields, STANDARD_AGENT_CONTACT_FIELDS } from "@/lib/agent-contact-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +32,23 @@ export default async function ContactDetailPage({ params, searchParams }: { para
 
   const contact = await getCompanyContact(id, session.companyId);
   if (!contact) notFound();
+  const visibleContactFields = session.role === "agent" ? await getAgentContactFields(session.companyId, session.id) : [];
   if (session.role === "agent") {
     const authorizedContact = await getOpenContactForAgent(id, session.companyId, session.id);
     if (!authorizedContact) notFound();
     await recordAgentWorkActivity();
   }
+  const agentCanSee = new Set(visibleContactFields);
+  const displayedContactName = session.role === "agent" && !agentCanSee.has("name") ? "Contact" : contact.name;
+  const agentDetails = session.role === "agent" ? visibleContactFields.flatMap((fieldId) => {
+    if (fieldId === "name" || fieldId === "phone" || fieldId === "status") return [];
+    const standard = STANDARD_AGENT_CONTACT_FIELDS.find((item) => item.id === fieldId);
+    const value = fieldId.startsWith("custom:")
+      ? contact.customFields[fieldId.slice("custom:".length)]
+      : fieldId === "lead_source" ? contact.leadSource : contact[fieldId as "email" | "subject" | "notes"];
+    const text = typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+    return text.trim() ? [{ id: fieldId, label: standard?.label ?? fieldId.slice("custom:".length), value: text }] : [];
+  }) : [];
 
   let calls: CallRow[] = [];
   let dispositions: DispositionRow[] = [];
@@ -45,9 +59,10 @@ export default async function ContactDetailPage({ params, searchParams }: { para
   let historyAvailable = false;
   try {
     const supabase = await createSupabaseServerClient();
+    const { client: crm } = await createCompanyCrmClient(session.companyId);
     const [callResult, callbackResult, agentResult] = await Promise.all([
-      supabase.from("calls").select("id, agent_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("internal_contact_id", id).order("requested_at", { ascending: false }).range((callsPage - 1) * pageSize, callsPage * pageSize - 1),
-      supabase.from("callbacks").select("id, due_at, timezone, status, completed_at").eq("internal_contact_id", id).order("due_at", { ascending: false }).limit(50),
+      crm.from("calls").select("id, agent_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("internal_contact_id", id).order("requested_at", { ascending: false }).range((callsPage - 1) * pageSize, callsPage * pageSize - 1),
+      crm.from("callbacks").select("id, due_at, timezone, status, completed_at").eq("company_id", session.companyId).eq("internal_contact_id", id).order("due_at", { ascending: false }).limit(50),
       contact.assignedUserId ? supabase.from("profiles").select("normalized_email").eq("id", contact.assignedUserId).maybeSingle() : Promise.resolve({ data: null, error: null }),
     ]);
     if (!callResult.error && !callbackResult.error) {
@@ -57,7 +72,7 @@ export default async function ContactDetailPage({ params, searchParams }: { para
       historyAvailable = true;
       const ids = calls.map((call) => call.id);
       if (ids.length) {
-        const dispositionResult = await supabase.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").in("call_id", ids).order("created_at", { ascending: false });
+        const dispositionResult = await crm.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").eq("company_id", session.companyId).in("call_id", ids).order("created_at", { ascending: false });
         if (!dispositionResult.error) dispositions = (dispositionResult.data ?? []) as DispositionRow[];
       }
     }
@@ -76,13 +91,13 @@ export default async function ContactDetailPage({ params, searchParams }: { para
   const pageCount = Math.max(1, Math.ceil(callCount / pageSize));
   const callPageHref = (page: number) => `/contacts/${encodeURIComponent(id)}?callsPage=${page}&size=${pageSize}#call-history`;
 
-  return <WorkspaceShell session={session} section="contacts" title={contact.name} subtitle={session.role === "admin" ? "Contact profile and saved history." : "Assigned contact details and saved activity."}>
+  return <WorkspaceShell session={session} section="contacts" title={displayedContactName} subtitle={session.role === "admin" ? "Contact profile and saved history." : "Assigned contact details and saved activity."}>
     {query.message ? <div className={styles.notice} role="status">{query.message}</div> : null}
     <div className={styles.profileGrid}>
       <section className={styles.profilePanel}>
-        <div className={styles.profileTop}><span className={styles.profileAvatar}>{contact.name.slice(0, 1).toUpperCase()}</span><div><span className={styles.eyebrow}>CONTACT</span><h2>{contact.name}</h2><StatusBadge tone={contact.isOpen ? "success" : contact.status ? "neutral" : "warning"}>{contact.status ?? "Unknown status"}</StatusBadge></div></div>
-        {session.role === "agent" ? <div className={styles.agentContactInfo}><div><small>SUBURB</small><span>{contact.suburb ?? "—"}</span></div><div><small>PHONE</small><AgentPhoneReveal contactId={contact.id} contactName={contact.name} maskedPhone={contact.maskedPhone} /></div></div> : <div className={styles.infoGrid}><div><small>PHONE</small><a href={contact.phone ? `tel:${contact.phone}` : undefined}><Phone size={13} /> {contact.phone ?? "Not available"}</a></div><div><small>EMAIL</small><span>{contact.email ?? "Not available"}</span></div><div><small>ASSIGNED AGENT</small><span><UserRound size={13} /> {agentName}</span></div><div><small>CONTACT ID</small><span className={styles.mono}>{contact.id}</span></div><div><small>SUBJECT</small><span>{contact.subject ?? "Not set"}</span></div></div>}
-        {session.role === "agent" ? <AgentCallWorkflow contactId={contact.id} contactName={contact.name} /> : null}
+        <div className={styles.profileTop}><span className={styles.profileAvatar}>{displayedContactName.slice(0, 1).toUpperCase()}</span><div><span className={styles.eyebrow}>CONTACT</span><h2>{displayedContactName}</h2>{session.role === "admin" || agentCanSee.has("status") ? <StatusBadge tone={contact.isOpen ? "success" : contact.status ? "neutral" : "warning"}>{contact.status ?? "Unknown status"}</StatusBadge> : null}</div></div>
+        {session.role === "agent" ? <div className={styles.agentContactInfo}>{agentCanSee.has("phone") ? <div><small>PHONE</small><AgentPhoneReveal contactId={contact.id} contactName={displayedContactName} maskedPhone={contact.maskedPhone} /></div> : null}{agentDetails.map((field) => <div key={field.id}><small>{field.label}</small><span>{field.value}</span></div>)}</div> : <div className={styles.infoGrid}><div><small>PHONE</small><a href={contact.phone ? `tel:${contact.phone}` : undefined}><Phone size={13} /> {contact.phone ?? "Not available"}</a></div><div><small>EMAIL</small><span>{contact.email ?? "Not available"}</span></div><div><small>ASSIGNED AGENT</small><span><UserRound size={13} /> {agentName}</span></div><div><small>CONTACT ID</small><span className={styles.mono}>{contact.id}</span></div><div><small>SUBJECT</small><span>{contact.subject ?? "Not set"}</span></div></div>}
+        {session.role === "agent" && agentCanSee.has("phone") ? <AgentCallWorkflow contactId={contact.id} contactName={displayedContactName} /> : null}
         {session.role === "admin" ? <ContactEditor contact={{ id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, status: contact.status, subject: contact.subject, notes: contact.notes, assignedAgentId: contact.assignedAgentId }} agents={activeAgents} /> : null}
       </section>
       <section className={styles.profilePanel} id="call-history">

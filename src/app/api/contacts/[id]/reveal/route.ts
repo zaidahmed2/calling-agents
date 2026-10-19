@@ -5,6 +5,7 @@ import { getOpenContactForAgent } from "@/lib/contacts";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
 import { auditAgentPhoneReveal, recordAgentWorkActivity } from "@/lib/work-session-activity";
+import { getAgentContactFields } from "@/lib/agent-contact-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   }
 
   const { id } = await params;
+  if (!(await getAgentContactFields(session.companyId, session.id)).includes("phone")) {
+    return NextResponse.json({ error: "Your administrator has not enabled phone-number access for you." }, { status: 403 });
+  }
   const contact = await getOpenContactForAgent(id, session.companyId, session.id);
   if (!contact?.phone) return NextResponse.json({ error: "This contact is not available." }, { status: 404 });
-  if (!await auditAgentPhoneReveal(contact.id)) return NextResponse.json({ error: "Number access could not be verified. Try again or contact an administrator." }, { status: 503 });
+  if (!await auditAgentPhoneReveal(contact.id, session.companyId, session.id)) return NextResponse.json({ error: "Number access could not be verified. Try again or contact an administrator." }, { status: 503 });
   await recordAgentWorkActivity();
 
   return NextResponse.json({ phone: contact.phone }, {

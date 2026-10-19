@@ -163,7 +163,7 @@ export async function listOpenContactsForAgent({
   const contacts = page.contacts
     .filter((contact) => contact.isOpen && contact.assignedUserId === assignedUserId)
     .slice(0, limit)
-    .map(toAgentContact);
+    .map((contact) => toAgentContact(contact));
   return { contacts, blocked: false, nextCursor: page.nextCursor, hasMore: page.nextCursor !== null, total: page.total };
 }
 

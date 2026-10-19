@@ -8,6 +8,7 @@ import { getCompanyContact } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/calls/calls.module.css";
+import { createCompanyCrmClient } from "@/lib/company-database";
 
 export const dynamic = "force-dynamic";
 
@@ -20,15 +21,17 @@ export default async function CallDetailPage({ params }: { params: Promise<{ id:
   if (session.role !== "admin") redirect("/open-queue");
   const { id } = await params;
 
+  if (!session.companyId) redirect("/login?access=denied");
   const supabase = await createSupabaseServerClient();
-  const { data: callData, error } = await supabase.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome").eq("id", id).eq("company_id", session.companyId).maybeSingle();
+  const { client: crm } = await createCompanyCrmClient(session.companyId);
+  const { data: callData, error } = await crm.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome").eq("id", id).eq("company_id", session.companyId).maybeSingle();
   if (error) return <WorkspaceShell session={session} section="calls" title="Call details"><div className={styles.error} role="alert">Call details are unavailable. Check database connectivity and permissions.</div></WorkspaceShell>;
   if (!callData) notFound();
   const call = callData as CallRow;
   const [contact, agentResult, dispositionResult] = await Promise.all([
     call.internal_contact_id && session.companyId ? getCompanyContact(call.internal_contact_id, session.companyId) : Promise.resolve(null),
     supabase.from("profiles").select("normalized_email").eq("id", call.agent_id).maybeSingle(),
-    supabase.from("call_dispositions").select("outcome, note, qualified, callback_at, callback_timezone, created_at").eq("call_id", call.id).order("created_at", { ascending: false }),
+    crm.from("call_dispositions").select("outcome, note, qualified, callback_at, callback_timezone, created_at").eq("company_id", session.companyId).eq("call_id", call.id).order("created_at", { ascending: false }),
   ]);
   const dispositions = (dispositionResult.data ?? []) as DispositionRow[];
   const tone = call.current_state === "answered" || call.current_state === "completed" ? "success" : call.current_state === "failed" || call.current_state === "cancelled" ? "danger" : "neutral";

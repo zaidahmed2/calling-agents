@@ -92,7 +92,7 @@
 .testResult.blocked { color: #936313; }
 .formFields { display:grid; gap:10px; padding:14px 0; }
 .formFields>label:not(.toggleRow),.formPair label { display:grid; gap:5px; color:#536276; font-size:10px; font-weight:700; }
-.formFields input:not([type="checkbox"]),.mappingRow select { width:100%; min-width:0; height:35px; padding:0 9px; border:1px solid var(--border); border-radius:4px; color:var(--ink); background:#fff; font:inherit; font-size:11px; }
+.formFields input:not([type="checkbox"]),.mappingRow select { width:100%; min-width:0; height:38px; padding:0 9px; border:1px solid var(--border); border-radius:5px; color:var(--ink); background:#fff; font:inherit; font-size:11px; }
 .toggleRow,.toggleGroup label { display:flex; align-items:center; gap:8px; color:#536276; font-size:11px; font-weight:700; }
 .toggleRow input,.toggleGroup input { accent-color:var(--primary); }
 .toggleGroup { display:flex; flex-wrap:wrap; gap:16px; padding:3px 0; }
@@ -100,13 +100,39 @@
 .secondaryButton,.iconButton { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border:1px solid var(--line); border-radius:5px; color:#334155; background:white; font:inherit; font-size:10px; font-weight:700; }
 .secondaryButton:disabled { opacity:.5; cursor:not-allowed; }
 .inlineResult { margin:0; font-size:10px; line-height:1.5; }
-.mappingPanel { padding:12px 0; border-top:1px solid var(--line); }
-.mappingPanel>header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.mappingPanel { padding:15px 0; border-top:1px solid var(--line); }
+.mappingPanel>header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; }
 .mappingPanel>header>div { display:grid; gap:3px; }
 .mappingPanel>header strong,.syncControls strong { font-size:11px; }
 .mappingPanel>header small,.syncControls small { color:var(--muted); font-size:9px; }
-.mappingRows { display:grid; gap:7px; }
-.mappingRow { display:grid; grid-template-columns:1fr 1.2fr .8fr 34px; gap:6px; align-items:center; }
+.mappingColumns { display:grid;grid-template-columns:minmax(130px,1fr) 28px minmax(180px,1.2fr) minmax(132px,.8fr);gap:8px;align-items:center;padding:0 10px 7px;color:#526174; }
+.mappingRow { display:grid;grid-template-columns:minmax(130px,1fr) 28px minmax(180px,1.2fr) minmax(132px,.8fr) 32px;gap:8px;align-items:center; }
+.mappingColumns>div { display:grid;gap:3px; }
+.mappingColumns strong { font-size:10px;font-weight:800; }
+.mappingColumns small,.mappingColumns>span { color:#8894a4;font-size:8px; }
+.mappingColumns>span:last-child { text-align:center; }
+.mappingRows { display:grid;gap:7px; }
+.mappingRow { padding:8px 10px;border:1px solid #e9edf2;border-radius:7px;background:#fbfcfe;transition:border-color 140ms ease,background 140ms ease; }
+.mappingRow:focus-within { border-color:#a8bddc;background:#f7faff; }
+.mappingArrow { display:grid;place-items:center;color:#8b9aab; }
+.mappingRow select { background-color:#fff; }
+.fieldPicker { position:relative;min-width:0;width:100%; }
+.fieldPickerTrigger { width:100%;height:38px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 9px;border:1px solid var(--border);border-radius:5px;color:var(--ink);background:#fff;font:inherit;font-size:11px;text-align:left;cursor:pointer; }
+.fieldPickerTrigger>span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.fieldPickerTrigger:focus-visible,.fieldPickerSearch input:focus-visible,.fieldPickerOptions button:focus-visible { outline:2px solid #8aaee0;outline-offset:1px; }
+.fieldPickerMenu { position:absolute;top:calc(100% + 4px);left:0;z-index:30;width:max(100%,260px);padding:7px;border:1px solid #d9e0e8;border-radius:7px;background:#fff;box-shadow:0 10px 28px rgba(21,35,54,.16); }
+.fieldPickerSearch { display:flex;align-items:center;gap:7px;padding:0 8px;border:1px solid var(--border);border-radius:5px;color:#8390a0; }
+.fieldPickerSearch input { width:100%;height:34px;min-width:0;padding:0;border:0;outline:0;color:var(--ink);background:transparent;font:inherit;font-size:11px; }
+.fieldPickerOptions { display:grid;max-height:220px;overflow:auto;margin-top:6px; }
+.fieldPickerOptions button { min-height:37px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:0;border-radius:4px;color:#334155;background:#fff;font:inherit;font-size:10px;text-align:left;cursor:pointer; }
+.fieldPickerOptions button:hover,.fieldPickerOptions button[aria-selected="true"] { background:#f1f6fc; }
+.fieldPickerOptions button:disabled { color:#a1aab5;cursor:not-allowed; }
+.fieldPickerOptions button small { flex:0 0 auto;color:#8b96a4;font-size:8px; }
+.fieldPickerOptions p { margin:8px;padding:4px;color:#68778a;font-size:10px; }
+.removeMapping { width:30px;height:32px;display:grid;place-items:center;border:1px solid transparent;border-radius:5px;color:#8491a1;background:transparent;cursor:pointer; }
+.removeMapping:hover { border-color:#f0d4d4;color:#ad3944;background:#fff6f6; }
+.mappingHint { margin:0 0 10px;padding:9px 11px;border:1px solid #e7edf5;border-radius:6px;color:#65758a;background:#f8fafc;font-size:9px;line-height:1.5; }
+.mappingFooter { display:flex;justify-content:space-between;align-items:center;gap:9px;margin-top:10px; }
 .iconButton { width:32px; padding:0; color:#8f3737; }
 .syncControls { display:grid; gap:10px; padding-top:12px; border-top:1px solid var(--line); }
 .syncControls>div:first-child { display:grid; gap:3px; }
@@ -145,7 +171,15 @@
   .securityBanner { align-items: flex-start; padding: 13px; }
   .envPill { display: none; }
   .bottomNote { align-items: flex-start; flex-direction: column; }
-  .mappingRow { grid-template-columns:1fr 1fr 34px; }
-  .mappingRow select:nth-child(3) { grid-column:1 / 3; }
+  .mappingColumns { display:none; }
+  .mappingRow { grid-template-columns:minmax(0,1fr) minmax(0,1fr) 32px;gap:6px;padding:8px; }
+  .mappingRow > :nth-child(1) { grid-column:1; }
+  .mappingArrow { display:none; }
+  .mappingRow > :nth-child(3) { grid-column:2; }
+  .mappingRow > :nth-child(4) { grid-column:1 / 3;grid-row:2; }
+  .mappingRow > :nth-child(5) { grid-column:3;grid-row:2; }
+  .fieldPickerMenu { width:max(100%,240px); }
+  .mappingFooter { align-items:stretch;flex-direction:column; }
+  .mappingFooter button { justify-content:center; }
   .formPair { grid-template-columns:1fr; }
 }

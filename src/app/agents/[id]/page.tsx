@@ -8,6 +8,8 @@ import { getCompanyContact, listContactsForAgent } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/agents/[id]/agent-detail.module.css";
+import { createCompanyCrmClient } from "@/lib/company-database";
+import AgentContactAccess from "@/app/agents/[id]/agent-contact-access";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +63,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
   const pageSize = 25;
 
   const supabase = await createSupabaseServerClient();
+  const { client: crm } = await createCompanyCrmClient(session.companyId);
   const { data: membership } = await supabase.from("company_memberships").select("profile_id")
     .eq("profile_id", id).eq("company_id", session.companyId).eq("role", "agent").eq("is_active", true).maybeSingle();
   if (!membership) notFound();
@@ -72,11 +75,11 @@ export default async function AgentDetailPage({ params, searchParams }: { params
   const profile = profileData as Profile;
 
   const [callResult, sessionResult, assignmentCountResult, assignmentResult, callbackCountResult, assignedContactsResult] = await Promise.all([
-    supabase.from("calls").select("id, ghl_contact_id, internal_contact_id, current_state, requested_at, ended_at, verified_duration_seconds, manual_duration_seconds, provider_call_id, call_source, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("agent_id", id).order("requested_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1),
+    crm.from("calls").select("id, ghl_contact_id, internal_contact_id, current_state, requested_at, ended_at, verified_duration_seconds, manual_duration_seconds, provider_call_id, call_source, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("agent_id", id).order("requested_at", { ascending: false }).range((page - 1) * pageSize, page * pageSize - 1),
     supabase.from("work_sessions").select("id, started_at, ended_at, state, state_changed_at, last_activity_at, active_seconds, idle_seconds, reason", { count: "exact" }).eq("company_id", session.companyId).eq("agent_id", id).order("started_at", { ascending: false }).range((sessionsPage - 1) * pageSize, sessionsPage * pageSize - 1),
-    supabase.from("contact_assignment_events").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("to_agent_id", id),
-    supabase.from("contact_assignment_events").select("id, internal_contact_id, from_agent_id, to_agent_id, created_at, actor_id", { count: "exact" }).eq("company_id", session.companyId).or(`from_agent_id.eq.${id},to_agent_id.eq.${id}`).order("created_at", { ascending: false }).range((assignmentsPage - 1) * pageSize, assignmentsPage * pageSize - 1),
-    supabase.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("agent_id", id),
+    crm.from("contact_assignment_events").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("to_agent_id", id),
+    crm.from("contact_assignment_events").select("id, internal_contact_id, from_agent_id, to_agent_id, created_at, actor_id", { count: "exact" }).eq("company_id", session.companyId).or(`from_agent_id.eq.${id},to_agent_id.eq.${id}`).order("created_at", { ascending: false }).range((assignmentsPage - 1) * pageSize, assignmentsPage * pageSize - 1),
+    crm.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("agent_id", id),
     listContactsForAgent({ companyId: session.companyId, agentId: id, limit: 100, offset: contactsOffset }),
   ]);
 
@@ -85,7 +88,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
   const assignments = (assignmentResult.data ?? []) as Assignment[];
   const callIds = calls.map((call) => call.id);
   const [dispositionResult, contactRowsResult] = await Promise.all([
-    callIds.length ? supabase.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").in("call_id", callIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    callIds.length ? crm.from("call_dispositions").select("call_id, outcome, note, qualified, callback_at, created_at").eq("company_id", session.companyId).in("call_id", callIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     Promise.all([...new Set([...calls.flatMap((call) => call.internal_contact_id ? [call.internal_contact_id] : []), ...assignments.flatMap((event) => event.internal_contact_id ? [event.internal_contact_id] : [])])].map(async (contactId) => [contactId, session.companyId ? await getCompanyContact(contactId, session.companyId) : null] as const)),
   ]);
   const dispositions = (dispositionResult.data ?? []) as Disposition[];
@@ -144,6 +147,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
     </div>
     {!profile.is_active ? <div className={styles.notice}>This agent profile is inactive.</div> : null}
     {manualCallCount > 0 ? <div className={styles.notice}>This period includes {manualCallCount} agent-reported call record(s). Their duration is not provider-verified.</div> : null}
+    <AgentContactAccess agentId={id} />
 
     <section className={styles.panel}>
       <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>01 / CALL HISTORY</span><h2>Calls and outcomes</h2></div><span className={styles.sectionCount}>{callCount} total records</span></header>
@@ -156,7 +160,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
 
     <section className={styles.panel}>
       <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>02 / COMPANY CRM</span><h2>Current assigned contacts</h2></div><span className={styles.sectionCount}>{assignedContactsResult.contacts.length} on this page</span></header>
-      {assignedContactsResult.contacts.length ? <><div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>SUBURB</th><th>PHONE</th><th>STATUS</th><th /></tr></thead><tbody>{assignedContactsResult.contacts.map((contact) => <tr key={contact.id}><td>{contact.name}</td><td>{contact.suburb ?? "—"}</td><td>{contact.maskedPhone}</td><td>{contact.status}</td><td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} aria-label={`Open ${contact.name}`}><ArrowUpRight size={15} /></Link></td></tr>)}</tbody></table></div>{contactNextOffset !== null ? <nav className={styles.pagination}><span>Contacts page {Math.floor(contactsOffset / 100) + 1}</span><Link href={contactPageHref(contactNextOffset)}>Next contacts</Link></nav> : null}</> : <EmptyState title="No current Open contacts" detail="Contacts appear here when assigned to this agent and marked Open in the company CRM." icon={<ContactRound size={18} />} />}
+      {assignedContactsResult.contacts.length ? <><div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>VISIBLE DETAILS</th><th>PHONE</th><th>STATUS</th><th /></tr></thead><tbody>{assignedContactsResult.contacts.map((contact) => <tr key={contact.id}><td>{contact.name}</td><td>{contact.details.length ? contact.details.map((field) => `${field.label}: ${field.value}`).join(" · ") : "—"}</td><td>{contact.phoneVisible ? contact.maskedPhone : "Hidden"}</td><td>{contact.status ?? "Hidden"}</td><td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} aria-label={`Open ${contact.name}`}><ArrowUpRight size={15} /></Link></td></tr>)}</tbody></table></div>{contactNextOffset !== null ? <nav className={styles.pagination}><span>Contacts page {Math.floor(contactsOffset / 100) + 1}</span><Link href={contactPageHref(contactNextOffset)}>Next contacts</Link></nav> : null}</> : <EmptyState title="No current Open contacts" detail="Contacts appear here when assigned to this agent and marked Open in the company CRM." icon={<ContactRound size={18} />} />}
     </section>
 
     <section className={styles.panel}>

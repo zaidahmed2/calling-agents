@@ -32,7 +32,7 @@ export default async function ContactsManagementPage() {
       listCompanyContacts({ companyId: session.companyId, limit: 25 }),
       listAssignableAgents(),
     ]);
-    const lastCallDates = await getLatestCallDatesByContact(page.contacts.map((contact) => contact.id));
+    const lastCallDates = await getLatestCallDatesByContact(session.companyId, page.contacts.map((contact) => contact.id));
     initialData = {
       ...initialData,
       contacts: page.contacts.map((contact) => ({ ...contact, lastCallAt: lastCallDates[contact.id] ?? null })),

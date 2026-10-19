@@ -9,6 +9,7 @@
 .inviteButton,.emptyInvite { min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 15px;border:0;border-radius:4px;color:#fff;background:#176c4a;font:inherit;font-size:12px;font-weight:750; }
 .directory { overflow:hidden;border:1px solid var(--border);border-radius:7px;background:#fff; }
 .directoryHeader { min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 16px;border-bottom:1px solid #e8eeea; }
+.directoryActions { display:flex;align-items:center;gap:10px; }
 .directoryHeader>div { display:grid;gap:4px; }
 .directoryHeader h2 { margin:0;color:#1b2a22;font-size:14px; }
 .directoryHeader>div>span { color:#7b887f;font-size:10px; }
@@ -60,5 +61,5 @@
 .inviteSubmit { border-color:#176c4a;color:#fff;background:#176c4a; }
 .inviteSubmit:disabled { opacity:.55;cursor:not-allowed; }
 @media(max-width:1100px) { .agentRow { grid-template-columns:38px minmax(140px,1.4fr) 75px repeat(3,minmax(58px,.6fr)) auto; } .sessionActive,.sessionIdle { display:none; } }
-@media(max-width:760px) { .summary { grid-template-columns:repeat(3,minmax(0,1fr)); } .inviteButton { grid-column:1 / -1; } .agentRow { grid-template-columns:36px minmax(0,1fr) auto;gap:9px;padding:12px; } .status { grid-column:3;grid-row:1; } .metric { display:none; } .actions { grid-column:2 / -1;justify-content:flex-start; } .directoryHeader { align-items:flex-start;flex-direction:column; } .search { width:100%; } }
+@media(max-width:760px) { .summary { grid-template-columns:repeat(3,minmax(0,1fr)); } .inviteButton { grid-column:1 / -1; } .agentRow { grid-template-columns:36px minmax(0,1fr) auto;gap:9px;padding:12px; } .status { grid-column:3;grid-row:1; } .metric { display:none; } .actions { grid-column:2 / -1;justify-content:flex-start; } .directoryHeader { align-items:flex-start;flex-direction:column; } .directoryActions { width:100%;align-items:stretch;flex-direction:column; } .search { width:100%; } }
 @media(max-width:420px) { .summary { grid-template-columns:1fr 1fr; } .summary article:nth-child(3) { grid-column:1 / -1; } }

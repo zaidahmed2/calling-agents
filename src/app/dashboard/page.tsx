@@ -7,6 +7,7 @@ import { EmptyState, StatusBadge } from "@/components/ui";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/dashboard/page.module.css";
+import { createCompanyCrmClient } from "@/lib/company-database";
 
 export const dynamic = "force-dynamic";
 
@@ -44,19 +45,21 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   let contactRows: ContactSummaryRow[] = [];
 
   try {
+    if (!session.companyId) redirect("/login?access=denied");
     const supabase = await createSupabaseServerClient();
+    const { client: crm } = await createCompanyCrmClient(session.companyId);
     const [agentResult, sessionResult, recentCallsResult, callbackResult, activityResult, allCallsCount, answeredCount, failedCount, dueCount, overdueCount, contactResult] = await Promise.all([
       supabase.from("profiles").select("id, normalized_email, ghl_user_id").eq("app_role", "agent").eq("is_active", true).order("normalized_email"),
       supabase.from("work_sessions").select("agent_id, state, started_at").in("state", ["active", "paused"]),
-      supabase.from("calls").select("id, agent_id, ghl_contact_id, current_state, requested_at, answered_at, verified_duration_seconds, outcome").gte("requested_at", since.toISOString()).order("requested_at", { ascending: false }).limit(1000),
-      supabase.from("callbacks").select("id, contact_id, agent_id, due_at, status").in("status", ["scheduled", "due", "missed"]).order("due_at", { ascending: true }).limit(100),
-      supabase.from("activity_logs").select("id, event_type, created_at").order("created_at", { ascending: false }).limit(8),
-      supabase.from("calls").select("id", { count: "exact", head: true }),
-      supabase.from("calls").select("id", { count: "exact", head: true }).or("current_state.eq.answered,and(current_state.eq.completed,answered_at.not.is.null)"),
-      supabase.from("calls").select("id", { count: "exact", head: true }).eq("current_state", "failed"),
-      supabase.from("callbacks").select("id", { count: "exact", head: true }).in("status", ["scheduled", "due", "missed"]).lte("due_at", now.toISOString()),
-      supabase.from("callbacks").select("id", { count: "exact", head: true }).in("status", ["scheduled", "due", "missed"]).lt("due_at", now.toISOString()),
-      supabase.from("contacts").select("status, assigned_agent_id", { count: "exact" }).eq("company_id", session.companyId).order("updated_at", { ascending: false }).limit(1000),
+      crm.from("calls").select("id, agent_id, ghl_contact_id, current_state, requested_at, answered_at, verified_duration_seconds, outcome").eq("company_id", session.companyId).gte("requested_at", since.toISOString()).order("requested_at", { ascending: false }).limit(1000),
+      crm.from("callbacks").select("id, contact_id, agent_id, due_at, status").eq("company_id", session.companyId).in("status", ["scheduled", "due", "missed"]).order("due_at", { ascending: true }).limit(100),
+      crm.from("activity_logs").select("id, event_type, created_at").eq("company_id", session.companyId).order("created_at", { ascending: false }).limit(8),
+      crm.from("calls").select("id", { count: "exact", head: true }).eq("company_id", session.companyId),
+      crm.from("calls").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).or("current_state.eq.answered,and(current_state.eq.completed,answered_at.not.is.null)"),
+      crm.from("calls").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("current_state", "failed"),
+      crm.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).in("status", ["scheduled", "due", "missed"]).lte("due_at", now.toISOString()),
+      crm.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).in("status", ["scheduled", "due", "missed"]).lt("due_at", now.toISOString()),
+      crm.from("contacts").select("status, assigned_agent_id", { count: "exact" }).eq("company_id", session.companyId).order("updated_at", { ascending: false }).limit(1000),
     ]);
     const results = [agentResult, sessionResult, recentCallsResult, callbackResult, activityResult, allCallsCount, answeredCount, failedCount, dueCount, overdueCount];
     available = !results.some((result) => result.error);

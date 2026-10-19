@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { listActiveAgentProfiles } from "@/lib/assignable-agents";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { getLatestCallDatesByContact } from "@/lib/contact-history";
 import { listCompanyContacts } from "@/lib/contacts";
+import { createCompanyCrmClient } from "@/lib/company-database";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   const offset = Number.isInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
   try {
     const [page, agents] = await Promise.all([listCompanyContacts({ companyId: session.companyId, offset, limit }), listActiveAgentProfiles()]);
-    const lastCallDates = await getLatestCallDatesByContact(page.contacts.map((contact) => contact.id));
+    const lastCallDates = await getLatestCallDatesByContact(session.companyId, page.contacts.map((contact) => contact.id));
     return NextResponse.json({
       contacts: page.contacts.map((contact) => ({ ...contact, lastCallAt: lastCallDates[contact.id] ?? null })),
       nextCursor: page.nextOffset === null ? null : { startAfter: String(page.nextOffset), startAfterId: "offset" },
@@ -62,7 +63,6 @@ export async function POST(request: Request) {
   if (!session) return errorResponse(401, "Sign in is required.");
   if (session.role !== "admin" || !session.companyId) return errorResponse(403, "Company administrator access is required.");
   if (!isWithinRateLimit(mutationLimiter, session.id)) return errorResponse(429, "Too many contact changes. Wait a minute and try again.");
-  if (!isWithinRateLimit(mutationLimiter, session.id)) return errorResponse(429, "Too many contact changes. Wait a minute and try again.");
   let payload: unknown;
   try { payload = await request.json(); } catch { return errorResponse(400, "Invalid JSON request."); }
 
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const supabase = await createSupabaseServerClient();
+    const { client: supabase } = await createCompanyCrmClient(session.companyId);
     const emails = [...new Set(records.flatMap((record) => record.email ? [record.email] : []))];
     const phones = [...new Set(records.flatMap((record) => record.phone ? [record.phone] : []))];
     const [emailResult, phoneResult] = await Promise.all([
@@ -149,13 +149,24 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("admin_update_company_contacts", {
-      p_contact_ids: contactIds,
-      p_set_assignment: hasAssignee,
-      p_assigned_agent_id: hasAssignee ? assignedTo : null,
-      p_status: typeof status === "string" ? status.trim() : null,
-    });
+    const { client: supabase, mode } = await createCompanyCrmClient(session.companyId);
+    const args = mode === "shared"
+      ? {
+        p_contact_ids: contactIds,
+        p_set_assignment: hasAssignee,
+        p_assigned_agent_id: hasAssignee ? assignedTo : null,
+        p_status: typeof status === "string" ? status.trim() : null,
+      }
+      : {
+        p_company_id: session.companyId,
+        p_contact_ids: contactIds,
+        p_set_assignment: hasAssignee,
+        p_assigned_agent_id: hasAssignee ? assignedTo : null,
+        p_status: typeof status === "string" ? status.trim() : null,
+        p_actor_id: session.id,
+      };
+    const rpcClient = mode === "shared" ? createSupabaseServiceClient() : supabase;
+    const { data, error } = await rpcClient.rpc("admin_update_company_contacts", args);
     if (error) return errorResponse(error.message.includes("company_contact_not_found") ? 404 : 503, "One or more contacts could not be updated for this company.");
     return NextResponse.json({ results: contactIds.map((contactId) => ({ contactId, ok: true, message: "Updated in CRM." })), succeeded: Number(data ?? 0), failed: 0 });
   } catch {

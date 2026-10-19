@@ -106,17 +106,38 @@ describe("GHL contact response parsing", () => {
     expect(normalizeGhlContact({ id: "no-suburb" }, "").suburb).toBeNull();
   });
 
-  it("projects only approved agent contact fields and never sends email or the full number", () => {
+  it("projects legacy agent fields without sending email or the full number", () => {
     const source = normalizeGhlContact({ id: "agent-safe", name: "Ava Contact", email: "private@example.com", phone: "0400123456", city: "Newtown", assignedTo: "agent-1", customFields: [{ name: "Status", value: "Open" }] }, "status-id");
     const agentView = toAgentContact(source);
 
-    expect(agentView).toEqual({ id: "agent-safe", name: "Ava Contact", suburb: "Newtown", maskedPhone: "••••••3456", status: "Open" });
+    expect(agentView).toEqual({ id: "agent-safe", name: "Ava Contact", phoneVisible: true, maskedPhone: "••••••3456", status: null, details: [], lastComment: null });
     expect(agentView).not.toHaveProperty("email");
     expect(agentView).not.toHaveProperty("phone");
     expect(JSON.stringify(agentView)).not.toContain("private@example.com");
     expect(JSON.stringify(agentView)).not.toContain("0400123456");
   });
 
+  it("only includes specifically allowed CRM fields in the agent view", () => {
+    const source = normalizeGhlContact({ id: "visibility", name: "Ava Contact", email: "ava@example.com", phone: "0400123456" }, "");
+    const agentView = toAgentContact({
+      ...source,
+      subject: "Requested callback",
+      notes: "Private note",
+      customFields: { suburb: "Northside" },
+    }, ["subject", "custom:suburb"]);
+
+    expect(agentView.name).toBe("Contact");
+    expect(agentView.phoneVisible).toBe(false);
+    expect(agentView.maskedPhone).toBeNull();
+    expect(agentView.status).toBeNull();
+    expect(agentView.details).toEqual([
+      { id: "subject", label: "Subject", value: "Requested callback" },
+      { id: "custom:suburb", label: "suburb", value: "Northside" },
+    ]);
+    expect(JSON.stringify(agentView)).not.toContain("ava@example.com");
+    expect(JSON.stringify(agentView)).not.toContain("0400123456");
+    expect(JSON.stringify(agentView)).not.toContain("Private note");
+  });
   it("does not reveal a full value when the phone contains four or fewer digits", () => {
     const source = normalizeGhlContact({ id: "short", phone: "1234" }, "");
     expect(source.maskedPhone).toBe("••••");

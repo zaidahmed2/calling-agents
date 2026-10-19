@@ -10,23 +10,57 @@ export type GhlContact = {
   phone: string | null;
   maskedPhone: string;
   lastActivityAt: string | null;
+  notes?: string | null;
+  leadSource?: string | null;
+  customFields?: Record<string, unknown>;
 };
 
 export type AgentContact = {
   id: string;
   name: string;
-  suburb: string | null;
-  maskedPhone: string;
-  status: "Open";
+  email?: string | null;
+  phoneVisible: boolean;
+  maskedPhone: string | null;
+  status: string | null;
+  details: Array<{ id: string; label: string; value: string }>;
+  lastComment: string | null;
 };
 
-export function toAgentContact(contact: GhlContact): AgentContact {
+const AGENT_FIELD_LABELS: Record<string, string> = {
+  email: "Email",
+  subject: "Subject",
+  notes: "Notes",
+  lead_source: "Lead source",
+};
+
+function fieldText(value: unknown): string | null {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const text = String(value).trim();
+    return text || null;
+  }
+  return null;
+}
+
+export function toAgentContact(contact: GhlContact, visibleFields: string[] = ["name", "phone", "status"]): AgentContact {
+  const allowed = new Set(visibleFields);
+  const details: AgentContact["details"] = [];
+  for (const field of ["email", "subject", "notes", "lead_source"] as const) {
+    const value = fieldText(field === "lead_source" ? contact.leadSource : contact[field]);
+    if (allowed.has(field) && value) details.push({ id: field, label: AGENT_FIELD_LABELS[field], value });
+  }
+  for (const [key, value] of Object.entries(contact.customFields ?? {})) {
+    const text = fieldText(value);
+    if (allowed.has(`custom:${key}`) && text) details.push({ id: `custom:${key}`, label: key, value: text });
+  }
   return {
     id: contact.id,
-    name: contact.name,
-    suburb: contact.suburb,
-    maskedPhone: contact.maskedPhone,
-    status: "Open",
+    name: allowed.has("name") ? contact.name : "Contact",
+    ...(allowed.has("email") ? { email: contact.email ?? null } : {}),
+    phoneVisible: allowed.has("phone"),
+    maskedPhone: allowed.has("phone") ? contact.maskedPhone : null,
+    status: allowed.has("status") ? contact.status : null,
+    details,
+    lastComment: null,
   };
 }
 
