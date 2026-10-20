@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+import { ADMIN_COMPANY_CONTEXT_COOKIE, isCompanyId } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 export async function createSupabaseServerClient() {
@@ -9,8 +10,12 @@ export async function createSupabaseServerClient() {
   }
 
   const cookieStore = await cookies();
+  const companyId = cookieStore.get(ADMIN_COMPANY_CONTEXT_COOKIE)?.value;
 
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
+    global: {
+      headers: isCompanyId(companyId) ? { "x-company-context": companyId } : {},
+    },
     cookies: {
       getAll() {
         return cookieStore.getAll();

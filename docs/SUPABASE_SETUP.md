@@ -31,6 +31,8 @@ The migrations create the application tables and then harden RLS policies. Revie
 
 Migration `20261018_000016_company_database_registry.sql` adds the central company database registry. Apply the central migration before deploying code that uses company database routing. Existing companies are registered in shared mode; newly created companies can select shared mode or external Supabase mode.
 
+Migration `20261020_000018_super_admin_company_context.sql` enables selected-company administration for platform Super Admins. Apply it to the central project before deploying the **View as Admin** feature; tenant Supabase projects do not need this central migration.
+
 ## Company-specific Supabase projects
 
 External company projects use the separate, minimal tenant schema in `supabase/tenant-migrations/20261018_000001_tenant_crm.sql`. Apply and review this migration in the company's own Supabase project (for example, using that project's SQL Editor) before entering its credentials in `/super-admin`. It creates the tenant CRM tables, indexes, foreign keys, lifecycle RPCs and RLS/grants; it does not apply the central platform migration history or change central data.

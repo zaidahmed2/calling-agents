@@ -1,4 +1,6 @@
-import { AppRole, AppSession } from "@/lib/auth";
+import { cookies } from "next/headers";
+
+import { ADMIN_COMPANY_CONTEXT_COOKIE, AppRole, AppSession, isCompanyId } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export async function getSession(): Promise<AppSession | null> {
@@ -22,12 +24,20 @@ export async function getSession(): Promise<AppSession | null> {
     }
 
     const isSuperAdmin = profile.platform_role === "super_admin";
-    const { data: membership, error: membershipError } = await supabase
-      .from("company_memberships")
-      .select("company_id, role, companies!inner(status)")
-      .eq("profile_id", user.id)
-      .eq("is_active", true)
-      .maybeSingle();
+    let actingCompanyId: string | null = null;
+    if (isSuperAdmin) {
+      const selectedCompanyId = (await cookies()).get(ADMIN_COMPANY_CONTEXT_COOKIE)?.value;
+      if (isCompanyId(selectedCompanyId)) actingCompanyId = selectedCompanyId;
+    }
+
+    const { data: membership, error: membershipError } = isSuperAdmin
+      ? { data: null, error: null }
+      : await supabase
+        .from("company_memberships")
+        .select("company_id, role, companies!inner(status)")
+        .eq("profile_id", user.id)
+        .eq("is_active", true)
+        .maybeSingle();
 
     if (membershipError || (!isSuperAdmin && !membership)) {
       await supabase.auth.signOut();
@@ -40,7 +50,7 @@ export async function getSession(): Promise<AppSession | null> {
       return null;
     }
 
-    const role = isSuperAdmin ? "super_admin" : membership?.role;
+    const role = actingCompanyId ? "admin" : isSuperAdmin ? "super_admin" : membership?.role;
     if (!role || !["admin", "agent", "super_admin"].includes(role)) {
       await supabase.auth.signOut();
       return null;
@@ -50,8 +60,9 @@ export async function getSession(): Promise<AppSession | null> {
       id: user.id,
       email: profile.normalized_email,
       role: role as AppRole,
-      companyId: isSuperAdmin ? null : membership?.company_id ?? null,
+      companyId: actingCompanyId ?? (isSuperAdmin ? null : membership?.company_id ?? null),
       isSuperAdmin,
+      isImpersonating: Boolean(actingCompanyId),
       ghlUserId: profile.ghl_user_id,
       displayName: user.user_metadata.full_name || user.email.split("@")[0],
     };

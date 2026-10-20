@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Activity, AudioLines, CalendarClock, ChartNoAxesCombined, ContactRound, LayoutDashboard, LogOut, Settings2, UsersRound, UserRoundCog } from "lucide-react";
 
-import { logout } from "@/app/dashboard/actions";
+import { logout, returnToSuperAdmin } from "@/app/dashboard/actions";
 import { AppSession } from "@/lib/auth";
 import WorkSessionTimer from "@/app/open-queue/work-session-timer";
 import styles from "@/components/workspace-shell.module.css";
@@ -68,6 +68,10 @@ export function WorkspaceShell({
         </div>
       </aside>
       <section className={styles.main}>
+        {session.isImpersonating ? <div className={styles.platformContext}>
+          <span>You are viewing this company as a Super Admin.</span>
+          <form action={returnToSuperAdmin}><button type="submit">Return to Super Admin</button></form>
+        </div> : null}
         <header className={styles.pageHeader}>
           <div><div className={styles.breadcrumb}>{isAdmin ? "ADMINISTRATION" : "CALLING WORKSPACE"} <span>/</span> {title.toUpperCase()}</div><h1>{title}</h1>{subtitle ? <p>{subtitle}</p> : null}</div>
           <div className={styles.headerRole}>{isAdmin ? "ADMIN" : "AGENT"}</div>

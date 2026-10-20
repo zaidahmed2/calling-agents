@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { listActiveAgentProfiles } from "@/lib/assignable-agents";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
-import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { createCompanyCrmClient } from "@/lib/company-database";
 
 export const dynamic = "force-dynamic";
@@ -62,8 +61,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       p_assigned_agent_id: assignedAgentId,
       p_actor_id: session.id,
     };
-  const rpcClient = mode === "shared" ? createSupabaseServiceClient() : supabase;
-  const { data, error } = await rpcClient.rpc("admin_edit_company_contact", args);
+  const { data, error } = await supabase.rpc("admin_edit_company_contact", args);
   if (error) return NextResponse.json({ error: error.message.includes("company_contact_not_found") ? "Contact is not available in this company." : "Contact could not be updated." }, { status: error.message.includes("company_contact_not_found") ? 404 : 503 });
   if (!data) return NextResponse.json({ error: "Contact is not available in this company." }, { status: 404 });
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

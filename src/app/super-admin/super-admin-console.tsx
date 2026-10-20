@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, ChevronDown, ChevronUp, CirclePlus, Pencil, Power, PowerOff, Save, ShieldCheck, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Building2, ChevronDown, ChevronUp, CirclePlus, Eye, Pencil, Power, PowerOff, Save, ShieldCheck, X } from "lucide-react";
 import styles from "@/app/super-admin/super-admin.module.css";
 
 type CompanyDatabase = {
@@ -25,11 +26,13 @@ export type CompanySummary = {
 };
 
 export default function SuperAdminConsole({ initialCompanies, initialError = "" }: { initialCompanies: CompanySummary[]; initialError?: string }) {
+  const router = useRouter();
   const [companies, setCompanies] = useState(initialCompanies);
   const [name, setName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [databaseMode, setDatabaseMode] = useState<"shared" | "external">("shared");
   const [busy, setBusy] = useState(false);
+  const [viewingCompanyId, setViewingCompanyId] = useState<string | null>(null);
   const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -39,6 +42,26 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
   );
   const [externalDatabase, setExternalDatabase] = useState<Record<string, { projectRef: string; publishableKey: string; serviceRoleKey: string }>>({});
   const [databaseErrorByCompany, setDatabaseErrorByCompany] = useState<Record<string, string>>({});
+
+  async function viewAsAdmin(company: CompanySummary) {
+    setBusy(true);
+    setViewingCompanyId(company.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/super-admin/companies/${encodeURIComponent(company.id)}/view-as-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Company admin access could not be opened.");
+      router.replace("/dashboard");
+    } catch (viewError) {
+      setError(viewError instanceof Error ? viewError.message : "Company admin access could not be opened.");
+      setBusy(false);
+      setViewingCompanyId(null);
+    }
+  }
 
   async function createCompany(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -205,6 +228,9 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
         <div className={styles.companyIdentity}>{editingId === company.id ? <input aria-label="Company name" value={editingName} onChange={(event) => setEditingName(event.target.value)} maxLength={160} /> : <strong>{company.name}</strong>}<span>{company.slug}</span></div>
         <div className={styles.companyAdmin}><small>INITIAL ADMIN</small><span>{company.initial_admin_email ?? "Not designated"}</span></div>
         <span className={`${styles.companyStatus} ${styles[company.status]}`}>{company.status.replace("_", " ")}</span>
+        <button className={styles.viewAsAdmin} type="button" onClick={() => void viewAsAdmin(company)} disabled={busy} aria-label={`View ${company.name} as admin`}>
+          <Eye size={14} />{viewingCompanyId === company.id ? "Opening..." : "View as Admin"}
+        </button>
         {editingId === company.id ? <><button className={styles.companyToggle} type="button" onClick={() => void saveName(company)} disabled={busy || editingName.trim().length < 2} aria-label={`Save ${company.name}`} title="Save company name"><Save size={15} /></button><button className={styles.companyToggle} type="button" onClick={() => setEditingId(null)} disabled={busy} aria-label="Cancel name edit" title="Cancel"><X size={15} /></button></> : <><button className={styles.companyToggle} type="button" onClick={() => { setEditingId(company.id); setEditingName(company.name); }} aria-label={`Edit ${company.name}`} title="Edit company"><Pencil size={15} /></button><button className={styles.companyToggle} type="button" onClick={() => void setStatus(company)} disabled={busy || company.status === "setup"} aria-label={`${company.status === "active" ? "Deactivate" : "Activate"} ${company.name}`} title={`${company.status === "active" ? "Deactivate" : "Activate"} company`}>
           {company.status === "active" ? <PowerOff size={16} /> : <Power size={16} />}
         </button></>}
