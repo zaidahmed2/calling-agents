@@ -55,7 +55,7 @@ export default function AgentsManager() {
     return matchesFilter && (!query || agent.name.toLowerCase().includes(query) || agent.email.toLowerCase().includes(query));
   });
 
-  async function invite(event: React.FormEvent<HTMLFormElement>) {
+  async function addAgent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
@@ -65,16 +65,16 @@ export default function AgentsManager() {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }),
       });
       const result = await response.json() as { agent?: { id: string; email: string }; error?: string };
-      if (!response.ok || !result.agent) throw new Error(result.error ?? "Agent invitation could not be sent.");
+      if (!response.ok || !result.agent) throw new Error(result.error ?? "Agent could not be added.");
       setAgents((current) => [{
         id: result.agent!.id, profileId: result.agent!.id, email: result.agent!.email, name: result.agent!.email,
         role: "agent", isActive: true, openContacts: 0, calls: 0, callbacks: 0, activeSession: false,
       }, ...current]);
-      setNotice(`Invitation sent to ${result.agent.email}.`);
+      setNotice(`${result.agent.email} was added. They can request a sign-in code from the login page.`);
       setEmail("");
       setShowInvite(false);
     } catch (inviteError) {
-      setError(inviteError instanceof Error ? inviteError.message : "Agent invitation could not be sent.");
+      setError(inviteError instanceof Error ? inviteError.message : "Agent could not be added.");
     } finally {
       setBusy(false);
     }
@@ -105,7 +105,7 @@ export default function AgentsManager() {
       <article><span className={styles.summaryIcon}><UserRoundCheck size={17} /></span><div><small>ACTIVE AGENTS</small><strong>{activeCount}</strong></div></article>
       <article><span className={styles.summaryIcon}><UserRoundX size={17} /></span><div><small>INACTIVE</small><strong>{inactiveCount}</strong></div></article>
       <article><span className={styles.summaryIcon}><ContactRound size={17} /></span><div><small>OPEN CONTACTS</small><strong>{openCount}</strong></div></article>
-      <button className={styles.inviteButton} type="button" onClick={() => { setError(""); setShowInvite(true); }}><Plus size={16} /> Invite agent</button>
+      <button className={styles.inviteButton} type="button" onClick={() => { setError(""); setShowInvite(true); }}><Plus size={16} /> Add agent</button>
     </section>
 
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
@@ -133,16 +133,16 @@ export default function AgentsManager() {
             <Link href={`/agents/${encodeURIComponent(agent.profileId)}`} className={styles.profileLink}>Profile <ChevronRight size={14} /></Link>
           </div>
         </article>)}
-      </div> : <div className={styles.empty}><span className={styles.emptyIcon}><UserRound size={19} /></span><strong>{agents.length ? "No agents match this view" : "No agents yet"}</strong><p>{agents.length ? "Try another search or filter." : "Invite your first agent to build the company team."}</p>{!agents.length ? <button type="button" className={styles.emptyInvite} onClick={() => setShowInvite(true)}><Plus size={15} /> Invite agent</button> : null}</div>}
+      </div> : <div className={styles.empty}><span className={styles.emptyIcon}><UserRound size={19} /></span><strong>{agents.length ? "No agents match this view" : "No agents yet"}</strong><p>{agents.length ? "Try another search or filter." : "Add an agent to build the company team."}</p>{!agents.length ? <button type="button" className={styles.emptyInvite} onClick={() => setShowInvite(true)}><Plus size={15} /> Add agent</button> : null}</div>}
     </section>
 
     {showInvite ? <div className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setShowInvite(false); }}>
-      <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="invite-agent-title">
-        <header><div><span className={styles.dialogIcon}><UserRoundCheck size={17} /></span><div><h2 id="invite-agent-title">Invite an agent</h2><p>They&apos;ll receive a sign-in invitation at their work email.</p></div></div><button type="button" className={styles.closeButton} onClick={() => setShowInvite(false)} aria-label="Close invite dialog" disabled={busy}><X size={17} /></button></header>
-        <form onSubmit={(event) => void invite(event)}>
+      <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="add-agent-title">
+        <header><div><span className={styles.dialogIcon}><UserRoundCheck size={17} /></span><div><h2 id="add-agent-title">Add an agent</h2><p>No invitation email is sent. They can request a one-time sign-in code from the login page.</p></div></div><button type="button" className={styles.closeButton} onClick={() => setShowInvite(false)} aria-label="Close add agent dialog" disabled={busy}><X size={17} /></button></header>
+        <form onSubmit={(event) => void addAgent(event)}>
           <label>Work email<input autoFocus type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="agent@company.com" /></label>
           <p className={styles.inviteFootnote}>Agents can access only contacts assigned to them in this company.</p>
-          <footer><button type="button" className={styles.cancelButton} onClick={() => setShowInvite(false)} disabled={busy}>Cancel</button><button type="submit" className={styles.inviteSubmit} disabled={busy || !email.trim()}><Plus size={15} />{busy ? "Sending..." : "Send invitation"}</button></footer>
+          <footer><button type="button" className={styles.cancelButton} onClick={() => setShowInvite(false)} disabled={busy}>Cancel</button><button type="submit" className={styles.inviteSubmit} disabled={busy || !email.trim()}><Plus size={15} />{busy ? "Adding..." : "Add agent"}</button></footer>
         </form>
       </section>
     </div> : null}

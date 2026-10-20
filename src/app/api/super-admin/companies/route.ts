@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { env } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -40,7 +39,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.isSuperAdmin) return NextResponse.json({ error: "Platform administrator access is required." }, { status: 403 });
-  if (!isWithinRateLimit(createLimiter, session.id)) return NextResponse.json({ error: "Too many company invitations. Try again shortly." }, { status: 429 });
+  if (!isWithinRateLimit(createLimiter, session.id)) return NextResponse.json({ error: "Too many company creations. Try again shortly." }, { status: 429 });
 
   let payload: unknown;
   try { payload = await request.json(); } catch { return NextResponse.json({ error: "Invalid company request." }, { status: 400 }); }
@@ -90,21 +89,18 @@ export async function POST(request: Request) {
       await service.from("profiles").delete().eq("id", userId);
       await service.auth.admin.deleteUser(userId);
     }
-    await service.from("company_invitations").delete().eq("company_id", company.id);
     await service.from("companies").delete().eq("id", company.id);
   };
 
-  const { data: invited, error: inviteError } = await service.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${env.appUrl}/login`,
-  });
-  if (inviteError || !invited.user) {
+  const { data: created, error: createError } = await service.auth.admin.createUser({ email, email_confirm: false });
+  if (createError || !created.user) {
     await rollbackCompany();
-    return NextResponse.json({ error: inviteError?.message.includes("already")
-      ? "That email already has an Auth account. Use an unregistered administrator email for the initial invite."
-      : "The administrator invitation could not be sent." }, { status: 409 });
+    return NextResponse.json({ error: createError?.message.toLowerCase().includes("already")
+      ? "That email already has a Supabase Auth account and cannot be added as a new company administrator."
+      : "The company administrator account could not be created." }, { status: 409 });
   }
 
-  const userId = invited.user.id;
+  const userId = created.user.id;
   const { error: profileError } = await service.from("profiles").insert({
     id: userId,
     normalized_email: email,
@@ -126,17 +122,6 @@ export async function POST(request: Request) {
   if (membershipError) {
     await rollbackCompany(userId);
     return NextResponse.json({ error: "The company administrator membership could not be provisioned." }, { status: 503 });
-  }
-
-  const { error: invitationError } = await service.from("company_invitations").insert({
-    company_id: company.id,
-    email,
-    role: "admin",
-    invited_by: session.id,
-  });
-  if (invitationError) {
-    await rollbackCompany(userId);
-    return NextResponse.json({ error: "The invitation record could not be saved." }, { status: 503 });
   }
 
   return NextResponse.json({ company }, { status: 201, headers: { "Cache-Control": "no-store" } });

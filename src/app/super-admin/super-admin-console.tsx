@@ -64,8 +64,8 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
       setAdminEmail("");
       setDatabaseMode("shared");
       setNotice(databaseMode === "external"
-        ? `Company created in setup. Apply the tenant migration, then configure and verify its database below. Invitation sent to ${result.company.initial_admin_email}.`
-        : `Company created and administrator invitation sent to ${result.company.initial_admin_email}.`);
+        ? `Company created in setup. Apply the tenant migration, then configure and verify its database below. ${result.company.initial_admin_email} can request a one-time sign-in code from the login page.`
+        : `Company created. ${result.company.initial_admin_email} can request a one-time sign-in code from the login page.`);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Company could not be created.");
     } finally {
@@ -188,7 +188,7 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
 
   return <>
     <form className={styles.companyCreate} onSubmit={(event) => void createCompany(event)}>
-      <header><Building2 size={18} /><div><h2>New company</h2><p>The company administrator receives an email invitation.</p></div></header>
+      <header><Building2 size={18} /><div><h2>New company</h2><p>No invitation email is sent. The administrator can request a one-time sign-in code from the login page.</p></div></header>
       <div className={styles.companyFields}>
         <label>Company name<input required minLength={2} maxLength={160} value={name} onChange={(event) => setName(event.target.value)} placeholder="Company name" /></label>
         <label>Administrator email<input required type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="admin@company.com" /></label>

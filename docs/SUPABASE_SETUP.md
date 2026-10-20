@@ -13,7 +13,7 @@ INTEGRATION_ENCRYPTION_KEY=BASE64_OR_HEX_32_BYTE_KEY
 OTP_RATE_LIMIT_PER_MINUTE=5
 ```
 
-The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name is also accepted. The service role key is used only by authenticated server routes for invitations and protected company operations. Do not put it, the database password, JWT secret, integration encryption key, or provider secrets in a `NEXT_PUBLIC_` variable or browser code.
+The legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` name is also accepted. The service role key is used only by authenticated server routes for account provisioning and protected company operations. Do not put it, the database password, JWT secret, integration encryption key, or provider secrets in a `NEXT_PUBLIC_` variable or browser code.
 
 GHL, Crazytel, and external company database credentials are encrypted using `INTEGRATION_ENCRYPTION_KEY`. This is an app-server key, separate from both the central Supabase keys and each company's project keys. Generate a 32-byte key, encode it as Base64 or 64 hexadecimal characters, and store it only in the app's server environment. Restart or redeploy after changing it. Back it up securely: encrypted credentials cannot be recovered if the key is lost.
 
@@ -90,7 +90,7 @@ set normalized_email = excluded.normalized_email,
     is_active = excluded.is_active;
 ```
 
-After the multi-company migration, manually provisioned profiles also require a `company_memberships` row for their company. Existing profiles have already been backfilled to `legacy-workspace`. Prefer the authenticated platform/company admin invitation flows, which create the Auth user, profile, and membership together. A GHL mapping is optional; internal contact workflows do not require it.
+After the multi-company migration, manually provisioned profiles also require a `company_memberships` row for their company. Existing profiles have already been backfilled to `legacy-workspace`. Prefer the authenticated platform/company admin provisioning flows, which create the Auth user, profile, and membership together without sending an invitation email. Users request an email OTP themselves from the login page. A GHL mapping is optional; internal contact workflows do not require it.
 
 ## Verify access
 
@@ -106,5 +106,5 @@ After the multi-company migration, manually provisioned profiles also require a 
 ## Current limitations
 
 - Supabase project migrations and live email delivery cannot be run from this workspace without your project reference and authorization. Apply them to your development project, then verify the login flow.
-- The first platform Super Admin must be designated through an owner-controlled SQL update. Company and agent invitations require valid server-side Supabase service credentials and configured email delivery.
+- The first platform Super Admin must be designated through an owner-controlled SQL update. Company and agent account provisioning require valid server-side Supabase service credentials. Sign-in OTP delivery requires configured email delivery.
 - The current OTP rate limiter is process-local. Use a shared store or edge/platform rate limiting before multi-instance production deployment.

@@ -16,7 +16,7 @@ Generate a 32-byte integration encryption key, for example, with `node -e "conso
 
 - Platform Super Admins create, activate, and deactivate companies from `/super-admin`.
 - Each company can use the existing shared database or a separate Supabase project. External projects stay inactive until their owner applies the dedicated tenant migration and a Super Admin verifies the schema and connection.
-- Company admins invite agents, manage internal contacts and assignments, import CSV/Excel files, and configure optional providers in `/settings`.
+- Company admins add agents by email without sending invitations; agents request a one-time email sign-in code when they log in. Admins also manage contacts and assignments, import CSV/Excel files, and configure optional providers in `/settings`.
 - Company admins can configure each agent's visible CRM contact fields from that agent's profile; the setting is stored in company membership and enforced on agent contact screens and phone/call actions.
 - Company admins can export all company contacts, call history (including disposition notes/outcomes), callbacks, agent activity, and work sessions as Excel-compatible CSV files.
 - Agents work only their assigned, open company contacts from `/open-queue`.
