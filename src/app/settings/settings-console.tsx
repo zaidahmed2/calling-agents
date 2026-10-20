@@ -6,6 +6,7 @@ import { ArrowRight, Check, ChevronDown, CircleHelp, Plus, RefreshCw, Save, Sear
 import styles from "@/app/settings/settings.module.css";
 
 type Provider = "ghl" | "crazytel";
+type IntegrationCheck = { name: string; state: "success" | "failure" | "blocked"; message: string };
 type ProviderSettings = { enabled: boolean; connectionStatus: string; lastError: string | null; settings: Record<string, unknown> };
 type ExternalField = { external_field_id: string; name: string; field_type: string | null; available: boolean };
 type Mapping = { internalField: string; externalFieldId: string; syncDirection: string };
@@ -147,7 +148,7 @@ export default function SettingsConsole() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [testResults, setTestResults] = useState<Record<string, { state: string; message: string }>>({});
+  const [testResults, setTestResults] = useState<Record<string, { state: string; message: string; checks?: IntegrationCheck[] }>>({});
 
   async function load() {
     setLoading(true);
@@ -205,7 +206,7 @@ export default function SettingsConsole() {
     return () => { active = false; };
   }, []);
 
-  async function save(provider: Provider, enabled: boolean) {
+  async function save(provider: Provider, enabled: boolean): Promise<boolean> {
     setBusy(`save-${provider}`);
     setError("");
     setNotice("");
@@ -223,11 +224,18 @@ export default function SettingsConsole() {
       if (provider === "ghl") setGhlKey("");
       else setCrazytelCredentials({ apiKey: "", webrtcSipUri: "", webrtcPassword: "", turnUsername: "", turnPassword: "" });
       await load();
+      return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Integration settings could not be saved.");
+      return false;
     } finally {
       setBusy("");
     }
+  }
+
+  async function verifyCrazytel() {
+    if (!await save("crazytel", crazytel.enabled)) return;
+    await test("crazytel");
   }
 
   async function test(provider: Provider) {
@@ -235,8 +243,8 @@ export default function SettingsConsole() {
     setError("");
     try {
       const response = await fetch("/api/admin/integrations/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider }) });
-      const result = await response.json() as { state?: string; message?: string };
-      setTestResults((current) => ({ ...current, [provider]: { state: result.state ?? "failure", message: result.message ?? "Connection check did not complete." } }));
+      const result = await response.json() as { state?: string; message?: string; checks?: IntegrationCheck[] };
+      setTestResults((current) => ({ ...current, [provider]: { state: result.state ?? "failure", message: result.message ?? "Connection check did not complete.", checks: result.checks } }));
       await load();
     } catch {
       setTestResults((current) => ({ ...current, [provider]: { state: "failure", message: "Could not reach the local app endpoint." } }));
@@ -431,7 +439,7 @@ export default function SettingsConsole() {
         </article>
 
         <article className={styles.integrationCard}>
-          <header className={styles.cardHeader}><div className={`${styles.serviceIcon} ${styles.crazytel}`}>C</div><div className={styles.serviceTitle}><h2>Crazytel</h2><p>Optional Hybrid SIP WebRTC calling provider</p></div><span className={crazytel.connectionStatus === "connected" ? styles.statusReady : styles.statusIncomplete}>{crazytel.connectionStatus.replaceAll("_", " ")}</span></header>
+          <header className={styles.cardHeader}><div className={`${styles.serviceIcon} ${styles.crazytel}`}>C</div><div className={styles.serviceTitle}><h2>Crazytel</h2><p>Optional Hybrid SIP WebRTC calling provider</p></div><span className={crazytel.connectionStatus === "connected" ? styles.statusReady : styles.statusIncomplete}>{crazytel.connectionStatus === "connected" ? "API key valid" : crazytel.connectionStatus.replaceAll("_", " ")}</span></header>
           <div className={styles.formFields}>
             <label className={styles.toggleRow}><input type="checkbox" checked={crazytel.enabled} onChange={(event) => void save("crazytel", event.target.checked)} />Enable Crazytel for this company</label>
             <label>Crazytel API key<input type="password" autoComplete="new-password" value={crazytelCredentials.apiKey} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, apiKey: event.target.value }))} placeholder={data.hasCredentials.crazytel ? "Saved securely; enter to replace" : "API key"} /></label>
@@ -442,9 +450,9 @@ export default function SettingsConsole() {
             <label>Outbound SIP URI template<input value={crazytelSettings.outboundUriTemplate} onChange={(event) => setCrazytelSettings((current) => ({ ...current, outboundUriTemplate: event.target.value }))} placeholder="Use {number}; confirm with Crazytel" /></label>
             <label>Verified caller ID<input value={crazytelSettings.callerId} onChange={(event) => setCrazytelSettings((current) => ({ ...current, callerId: event.target.value }))} /></label>
             <div className={styles.formPair}><label>TURN username<input value={crazytelCredentials.turnUsername} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, turnUsername: event.target.value }))} /></label><label>TURN password<input type="password" autoComplete="new-password" value={crazytelCredentials.turnPassword} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, turnPassword: event.target.value }))} /></label></div>
-            <p className={styles.warningText}><CircleHelp size={13} /> WebRTC SIP credentials are sent to the agent browser only when a call starts; prefer distinct trunk credentials per agent.</p>
-            <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void save("crazytel", crazytel.enabled)} disabled={busy !== ""}><Save size={14} /> Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void test("crazytel")} disabled={busy !== ""}>{busy === "test-crazytel" ? "Checking..." : "Test API key"}</button><button type="button" className={styles.secondaryButton} onClick={() => void disconnect("crazytel")} disabled={busy !== ""}>Disconnect</button></div>
-            {lastCrazytelTest ? <p className={`${styles.inlineResult} ${lastCrazytelTest.state === "success" ? styles.success : styles.failure}`}>{lastCrazytelTest.message}</p> : null}
+            <p className={styles.warningText}><CircleHelp size={13} /> API key test checks account balance only—not SIP registration, calls or recordings. These SIP fields are company-wide; agents currently share this configured trunk identity.</p>
+            <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void save("crazytel", crazytel.enabled)} disabled={busy !== ""}><Save size={14} /> Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void verifyCrazytel()} disabled={busy !== ""}>{busy.startsWith("test-crazytel") ? "Checking..." : "Verify API & calling setup"}</button><button type="button" className={styles.secondaryButton} onClick={() => void disconnect("crazytel")} disabled={busy !== ""}>Disconnect</button></div>
+            {lastCrazytelTest ? <div className={`${styles.inlineResult} ${lastCrazytelTest.state === "success" ? styles.success : styles.failure}`}><p>{lastCrazytelTest.message}</p>{lastCrazytelTest.checks?.map((check) => <p key={check.name}>{check.state === "success" ? "✓" : "×"} {check.name}: {check.message}</p>)}</div> : null}
             {crazytel.lastError ? <p className={`${styles.inlineResult} ${styles.failure}`}>{crazytel.lastError}</p> : null}
           </div>
         </article>

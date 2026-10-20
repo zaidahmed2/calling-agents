@@ -7,8 +7,10 @@
 - The WebRTC SIP identity has the form `sip:<hybrid-username>@hybrid.sip.crazytel.net.au`.
 - WebRTC has its own password, separate from the trunk's SIP password. Enable WebRTC in the Hybrid trunk settings first.
 - TURN relay: `turn.crazytel.net`, UDP port `3478`, TLS port `5349`.
-- Crazytel's server API base URL is `https://api.crazytel.io`; the API key uses the `X-Crazytel-Api-Key` header. The app's Settings check uses the read-only `GET /api/v1/balance/` endpoint, discards the response body, and never places a call.
-- Crazytel advertises Hybrid call event webhooks signed with HMAC-SHA256 and CDR/recording APIs. Those provider events still need account-specific verification and reconciliation before this app can label duration/provider IDs as verified.
+- Crazytel's server API base URL is `https://api.crazytel.io`; the API key uses the `X-Crazytel-Api-Key` header.
+- The official API lists SIP trunks at `GET /api/v1/sip-trunks/` and Hybrid SIPREC call recordings at `GET /api/v1/hybrid-sip-trunks/siprec-recordings`. Recording metadata is joined using `sip_call_id` to the SIP.js Call-ID; the `call_uuid` is used only for recording resources.
+- Crazytel provides `GET /api/v1/hybrid-sip-trunks/siprec-recordings/{call_uuid}/stream` for protected recording playback. This app requests that stream only after verifying the signed-in user can access the CRM call.
+- The deprecated `GET /api/v1/cdrs/` returns billing/detail records but is not used for recording playback. Provider-verified duration reconciliation is still separate from browser-reported call timing.
 
 ## Owner setup
 
@@ -28,15 +30,18 @@ CRAZYTEL_TURN_PASSWORD=
 CRAZYTEL_CALLER_ID=your_verified_caller_id
 ```
 
-4. Ask Crazytel support to confirm the exact **outbound SIP Request-URI** syntax your Hybrid trunk accepts for PSTN numbers, including required country-code format. Put that format in `CRAZYTEL_OUTBOUND_URI_TEMPLATE` using `{number}` for the normalized destination. Example shape only (not verified; do not use as-is): `sip:{number}@YOUR_CONFIRMED_OUTBOUND_DOMAIN`.
+4. Set the **outbound SIP Request-URI** syntax confirmed by Crazytel for PSTN numbers in `CRAZYTEL_OUTBOUND_URI_TEMPLATE`, using `{number}` for the destination.
 5. Crazytel's public WebRTC guide lists TURN host/ports but does not specify whether your account needs TURN credentials. Leave the optional username/password empty unless Crazytel supplies them. If supplied, configure both.
 6. Configure the trunk's caller ID in Crazytel as a verified CLI. The app does not spoof a caller ID in SIP requests.
-7. Restart the app, sign in as an agent, and use an approved test contact and destination. Browser microphone access requires HTTPS in deployment; localhost is allowed for local development.
+7. In Settings, select **Verify API & calling setup**. It checks the API balance, SIP trunk list, and Hybrid recording list endpoints, plus the presence of the company WebRTC identity. It does not place a call or prove SIP registration.
+8. For dedicated trunks, open **Agents → Agent activity**, choose that agent's enabled trunk, enter its WebRTC password, click **Test WebRTC login**, and only then assign it. A successful SIP REGISTER confirms authentication/connectivity; it does not place a call.
+9. Sign in as the agent and use an approved test contact and destination. Browser microphone access requires HTTPS in deployment; localhost is allowed for local development.
 
 ## Credential and call-truth notes
 
 - The Crazytel API key stays server-side. It is used only for HTTPS API operations such as the Settings credential check; it is not used to authenticate WebRTC media. Crazytel's documented API uses one API key; no separate API secret is required.
-- SIP.js must receive a SIP identity and WebRTC password in the agent's browser to register and establish WebRTC. This is inherently visible to that authenticated browser session. A single shared trunk password is therefore not secret from agents or browser devtools. Prefer distinct Crazytel Hybrid trunks/WebRTC credentials per agent if Crazytel/account setup permits; otherwise restrict this CRM to trusted agents and rotate the WebRTC password when access changes.
-- The app sends call audio directly between the browser and Crazytel over WebRTC; the Next.js server does not proxy or record audio.
-- A SIP.js session and browser timer are not independently provider-verified evidence. Until Crazytel call events/CDR are securely correlated and persisted, the CRM labels the current duration as agent-reported. Recording remains disabled unless separately approved/configured under applicable call-recording requirements.
+- SIP.js must receive a SIP identity and WebRTC password in the agent's browser to register and establish WebRTC. This is inherently visible to that authenticated agent/browser session. Prefer distinct Crazytel Hybrid trunks/WebRTC credentials per agent and rotate them when access changes.
+- The app can assign one enabled Crazytel SIP trunk to each company agent and stores that agent's WebRTC password encrypted with the company's integration credentials. The admin must apply the central agent-trunk migration first.
+- The app sends call audio directly between the browser and Crazytel over WebRTC; the Next.js server does not proxy or record call audio.
+- Call recording playback is available only when Crazytel has actually created a recording and the account API key has permission to read it. The admin call log and contact call history look up recordings by SIP Call-ID and use the authenticated provider stream endpoint. Browser call duration remains agent-reported until provider CDR/webhook reconciliation is implemented.
 - Outbound dial target format is intentionally required configuration. The implementation refuses to start until `CRAZYTEL_OUTBOUND_URI_TEMPLATE` is set, to avoid guessing a SIP route and placing a misrouted/charged call.

@@ -10,6 +10,8 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/agents/[id]/agent-detail.module.css";
 import { createCompanyCrmClient } from "@/lib/company-database";
 import AgentContactAccess from "@/app/agents/[id]/agent-contact-access";
+import AgentCrazytelAssignment from "@/app/agents/[id]/agent-crazytel-assignment";
+import { CallRecording } from "@/components/call-recording";
 
 export const dynamic = "force-dynamic";
 
@@ -147,14 +149,15 @@ export default async function AgentDetailPage({ params, searchParams }: { params
     </div>
     {!profile.is_active ? <div className={styles.notice}>This agent profile is inactive.</div> : null}
     {manualCallCount > 0 ? <div className={styles.notice}>This period includes {manualCallCount} agent-reported call record(s). Their duration is not provider-verified.</div> : null}
+    <AgentCrazytelAssignment agentId={id} />
     <AgentContactAccess agentId={id} />
 
     <section className={styles.panel}>
       <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>01 / CALL HISTORY</span><h2>Calls and outcomes</h2></div><span className={styles.sectionCount}>{callCount} total records</span></header>
-      {callResult.error || dispositionResult.error ? <div className={styles.error}>Call history could not be loaded.</div> : calls.length ? <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>STARTED</th><th>ENDED</th><th>DURATION</th><th>OUTCOME</th><th>COMMENTS</th><th>RECORD TYPE</th></tr></thead><tbody>{calls.map((call) => {
+      {callResult.error || dispositionResult.error ? <div className={styles.error}>Call history could not be loaded.</div> : calls.length ? <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>STARTED</th><th>ENDED</th><th>DURATION</th><th>OUTCOME</th><th>COMMENTS</th><th>RECORD TYPE</th><th>RECORDING</th></tr></thead><tbody>{calls.map((call) => {
         const disposition = latestDisposition.get(call.id);
         const seconds = call.manual_duration_seconds ?? call.verified_duration_seconds;
-        return <tr key={call.id}><td>{contactNames.get(call.ghl_contact_id)}</td><td>{new Date(call.requested_at).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</td><td>{call.ended_at ? new Date(call.ended_at).toLocaleString("en-AU", { timeZone: "Australia/Sydney" }) : "—"}</td><td>{duration(seconds)}{call.verified_duration_seconds !== null ? <small>Provider verified duration</small> : call.provider_call_id ? <small>Crazytel SIP · duration agent-reported</small> : call.manual_duration_seconds !== null ? <small>Agent-reported duration</small> : null}</td><td>{disposition?.outcome ?? call.outcome ?? call.current_state}{disposition?.callback_at ? <small>Callback {new Date(disposition.callback_at).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</small> : null}</td><td className={styles.comment}>{disposition?.note ?? "—"}</td><td>{call.provider_call_id ? "Crazytel WebRTC" : call.call_source === "agent_reported" ? "Agent reported" : "Provider"}</td></tr>;
+        return <tr key={call.id}><td>{contactNames.get(call.ghl_contact_id)}</td><td>{new Date(call.requested_at).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</td><td>{call.ended_at ? new Date(call.ended_at).toLocaleString("en-AU", { timeZone: "Australia/Sydney" }) : "—"}</td><td>{duration(seconds)}{call.verified_duration_seconds !== null ? <small>Provider verified duration</small> : call.provider_call_id ? <small>Crazytel SIP · duration agent-reported</small> : call.manual_duration_seconds !== null ? <small>Agent-reported duration</small> : null}</td><td>{disposition?.outcome ?? call.outcome ?? call.current_state}{disposition?.callback_at ? <small>Callback {new Date(disposition.callback_at).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}</small> : null}</td><td className={styles.comment}>{disposition?.note ?? "—"}</td><td>{call.provider_call_id ? "Crazytel WebRTC" : call.call_source === "agent_reported" ? "Agent reported" : "Provider"}</td><td>{call.provider_call_id ? <CallRecording callId={call.id} /> : "—"}</td></tr>;
       })}</tbody></table><nav className={styles.pagination}><span>Page {page} of {pageCount} · {callCount} calls</span><div><Link href={pageHref(Math.max(1, page - 1))} aria-disabled={page <= 1}>Previous</Link><Link href={pageHref(Math.min(pageCount, page + 1))} aria-disabled={page >= pageCount}>Next</Link></div></nav></div> : <EmptyState title="No saved calls" detail="Completed agent call reports and provider calls will appear here." icon={<AudioLines size={18} />} />}
     </section>
 

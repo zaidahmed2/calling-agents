@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { getCompanyIntegration } from "@/lib/integration-secrets";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 export type CrazytelWebRtcConfig = {
   websocketServer: string;
@@ -47,7 +48,7 @@ export function getCrazytelWebRtcConfig(destinationPhone: string): { ok: true; c
   };
 }
 
-export async function getCompanyCrazytelWebRtcConfig(companyId: string, destinationPhone: string): Promise<{ ok: true; config: CrazytelWebRtcConfig } | { ok: false; reason: string }> {
+export async function getCompanyCrazytelWebRtcConfig(companyId: string, agentId: string, destinationPhone: string): Promise<{ ok: true; config: CrazytelWebRtcConfig } | { ok: false; reason: string }> {
   let integration;
   try {
     integration = await getCompanyIntegration(companyId, "crazytel");
@@ -57,8 +58,19 @@ export async function getCompanyCrazytelWebRtcConfig(companyId: string, destinat
   const { config, credentials } = integration;
   const settings = config?.settings ?? {};
   if (!config?.enabled) return { ok: false, reason: "Calling is not enabled for this company. Ask an administrator to configure a provider." };
-  const sipUri = credentials.webrtcSipUri ?? "";
-  const webrtcPassword = credentials.webrtcPassword ?? "";
+  let assignedUsername: string | null = null;
+  try {
+    const { data: membership, error } = await createSupabaseServiceClient().from("company_memberships")
+      .select("crazytel_trunk_username")
+      .eq("company_id", companyId).eq("profile_id", agentId).eq("role", "agent")
+      .maybeSingle();
+    if (error) throw error;
+    assignedUsername = typeof membership?.crazytel_trunk_username === "string" ? membership.crazytel_trunk_username : null;
+  } catch {
+    return { ok: false, reason: "Agent Crazytel trunk assignment could not be loaded. Check the agent trunk migration and settings." };
+  }
+  const sipUri = assignedUsername ? `sip:${assignedUsername}@hybrid.sip.crazytel.net.au` : credentials.webrtcSipUri ?? "";
+  const webrtcPassword = assignedUsername ? credentials[`agent-${agentId}-webrtcPassword`] ?? "" : credentials.webrtcPassword ?? "";
   const websocketServer = typeof settings.websocketUrl === "string" ? settings.websocketUrl : "wss://hybrid.sip.crazytel.net.au:8443";
   const outboundTemplate = typeof settings.outboundUriTemplate === "string" ? settings.outboundUriTemplate : "";
   if (!sipUri.trim() || !webrtcPassword.trim()) return { ok: false, reason: "Company Crazytel WebRTC identity and password are not configured." };

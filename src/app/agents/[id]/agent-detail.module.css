@@ -45,6 +45,11 @@
 .visibilityPanel>footer button { display:inline-flex;align-items:center;gap:6px;min-height:33px;padding:0 10px;border:1px solid #466d10;border-radius:5px;color:#fff;background:#466d10;font:inherit;font-size:10px;font-weight:750;cursor:pointer; }
 .visibilityPanel>footer button:disabled { opacity:.55;cursor:wait; }
 .visibilityMessage { margin:0; }
+.callingAssignmentField { display:grid!important;align-items:start!important;gap:6px!important;cursor:default!important; }
+.callingAssignmentField select,.callingAssignmentField input { width:100%;min-width:0;height:36px;padding:0 8px;border:1px solid var(--border);border-radius:5px;color:var(--text);background:#fff;font:inherit;font-size:10px; }
+.callingAssignmentActions { display:flex;flex-wrap:wrap;gap:7px; }
+.visibilityPanel>footer .callingAssignmentActions button:first-child { border-color:var(--border);color:var(--text-soft);background:#fff; }
+.visibilityMessage code { overflow-wrap:anywhere; }
 .visibilityError,.visibilityNotice { margin:0;padding:8px 10px;border-radius:5px;font-size:10px; }
 .visibilityError { color:#923f36;background:#fff0ed; }
 .visibilityNotice { color:#367052;background:#eaf4ed; }

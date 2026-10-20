@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     if (!contact?.phone) return NextResponse.json({ error: "This contact is not available for a call." }, { status: 404 });
     if (!await auditAgentPhoneReveal(contact.id, session.companyId, session.id)) return NextResponse.json({ error: "Call access could not be verified." }, { status: 503 });
 
-    const webRtc = await getCompanyCallingConfig(session.companyId, contact.phone);
+    const webRtc = await getCompanyCallingConfig(session.companyId, session.id, contact.phone);
     if (!webRtc.ok) return NextResponse.json({ error: webRtc.reason }, { status: 503 });
 
     try {

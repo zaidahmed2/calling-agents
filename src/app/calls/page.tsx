@@ -10,10 +10,11 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/calls/calls.module.css";
 import { createCompanyCrmClient } from "@/lib/company-database";
 import { AdminExportLink } from "@/components/admin-export-link";
+import { CallRecording } from "@/components/call-recording";
 
 export const dynamic = "force-dynamic";
 
-type CallRow = { id: string; agent_id: string; ghl_contact_id: string; internal_contact_id: string | null; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
+type CallRow = { id: string; agent_id: string; ghl_contact_id: string; internal_contact_id: string | null; provider_call_id: string | null; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
 type AgentRow = { id: string; normalized_email: string };
 type DispositionRow = { call_id: string; outcome: string; note: string | null; qualified: boolean; callback_at: string | null; created_at: string };
 
@@ -48,7 +49,7 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
     if (!session.companyId) throw new Error("Company access is required.");
     const supabase = await createSupabaseServerClient();
     const { client: crm } = await createCompanyCrmClient(session.companyId);
-    let query = crm.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).order("requested_at", { ascending: false });
+    let query = crm.from("calls").select("id, agent_id, ghl_contact_id, internal_contact_id, provider_call_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).order("requested_at", { ascending: false });
     if (q) query = query.ilike("ghl_contact_id", `%${q}%`);
     if (selectedAgent !== "all") query = query.eq("agent_id", selectedAgent);
     if (selectedState !== "all") query = query.eq("current_state", selectedState);
@@ -112,12 +113,12 @@ export default async function CallHistoryPage({ searchParams }: { searchParams?:
         }).toString()} />
       </form>
       {unavailable ? <div className={styles.error} role="alert">Call history could not be loaded. Check database connectivity and permissions.</div> : null}
-      <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>PHONE</th><th>AGENT</th><th>DATE & TIME</th><th>DURATION</th><th>OUTCOME</th><th>STATE</th><th>DETAILS</th></tr></thead><tbody>
+      <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>PHONE</th><th>AGENT</th><th>DATE & TIME</th><th>DURATION</th><th>OUTCOME</th><th>STATE</th><th>RECORDING</th><th>DETAILS</th></tr></thead><tbody>
         {calls.map((call) => {
           const contactId = call.internal_contact_id;
           const contact = contactId ? contacts.get(contactId) : null;
           const disposition = latestDisposition.get(call.id);
-          return <tr key={call.id}><td>{contactId ? <Link href={`/contacts/${encodeURIComponent(contactId)}`} className={styles.contactName}>{contact?.name ?? "Contact"}<small>{contactId}</small></Link> : <span className={styles.contactName}>Legacy contact<small>{call.ghl_contact_id}</small></span>}{disposition?.note ? <details className={styles.note}><summary>View note</summary><p>{disposition.note}</p></details> : null}</td><td>{contact?.phone ?? "Unavailable"}</td><td>{agentNames.get(call.agent_id) ?? "Unknown agent"}</td><td>{new Date(call.requested_at).toLocaleString()}</td><td>{call.verified_duration_seconds === null ? "—" : `${Math.floor(call.verified_duration_seconds / 60)}m ${String(call.verified_duration_seconds % 60).padStart(2, "0")}s`}</td><td>{disposition?.outcome ?? call.outcome ?? "—"}{disposition?.callback_at ? <small className={styles.subLine}>Callback {new Date(disposition.callback_at).toLocaleString()}</small> : null}</td><td><StatusBadge tone={stateTone(call.current_state)}>{call.current_state}</StatusBadge></td><td><Link href={`/calls/${encodeURIComponent(call.id)}`} className={styles.detailLink} aria-label={`View details for call ${call.id}`}><ArrowUpRight size={14} /></Link></td></tr>;
+          return <tr key={call.id}><td>{contactId ? <Link href={`/contacts/${encodeURIComponent(contactId)}`} className={styles.contactName}>{contact?.name ?? "Contact"}<small>{contactId}</small></Link> : <span className={styles.contactName}>Legacy contact<small>{call.ghl_contact_id}</small></span>}{disposition?.note ? <details className={styles.note}><summary>View note</summary><p>{disposition.note}</p></details> : null}</td><td>{contact?.phone ?? "Unavailable"}</td><td>{agentNames.get(call.agent_id) ?? "Unknown agent"}</td><td>{new Date(call.requested_at).toLocaleString()}</td><td>{call.verified_duration_seconds === null ? "—" : `${Math.floor(call.verified_duration_seconds / 60)}m ${String(call.verified_duration_seconds % 60).padStart(2, "0")}s`}</td><td>{disposition?.outcome ?? call.outcome ?? "—"}{disposition?.callback_at ? <small className={styles.subLine}>Callback {new Date(disposition.callback_at).toLocaleString()}</small> : null}</td><td><StatusBadge tone={stateTone(call.current_state)}>{call.current_state}</StatusBadge></td><td>{call.provider_call_id ? <CallRecording callId={call.id} /> : "—"}</td><td><Link href={`/calls/${encodeURIComponent(call.id)}`} className={styles.detailLink} aria-label={`View details for call ${call.id}`}><ArrowUpRight size={14} /></Link></td></tr>;
         })}
       </tbody></table>
       {!unavailable && calls.length === 0 ? <EmptyState title="No calls found" detail="Saved call history matching these filters will appear here." icon={<AudioLines size={18} />} /> : null}</div>

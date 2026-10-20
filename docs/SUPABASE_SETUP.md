@@ -33,6 +33,10 @@ Migration `20261018_000016_company_database_registry.sql` adds the central compa
 
 Migration `20261020_000018_super_admin_company_context.sql` enables selected-company administration for platform Super Admins. Apply it to the central project before deploying the **View as Admin** feature; tenant Supabase projects do not need this central migration.
 
+Migration `20261020_000019_agent_session_event_history.sql` records agent sign-ins and each work-timer start, pause, resume, and end, and enables the company admin session audit page. Apply it to the central project. Historical session totals remain available, but individual sign-in and pause/resume events cannot be reconstructed for dates before this migration.
+
+Migration `20261021_000020_agent_crazytel_trunks.sql` adds per-agent Crazytel SIP trunk assignments to central company memberships. Apply it centrally before configuring dedicated trunks from an agent's activity page.
+
 ## Company-specific Supabase projects
 
 External company projects use the separate, minimal tenant schema in `supabase/tenant-migrations/20261018_000001_tenant_crm.sql`. Apply and review this migration in the company's own Supabase project (for example, using that project's SQL Editor) before entering its credentials in `/super-admin`. It creates the tenant CRM tables, indexes, foreign keys, lifecycle RPCs and RLS/grants; it does not apply the central platform migration history or change central data.

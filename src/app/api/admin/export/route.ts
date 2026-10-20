@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   }
 
   const type = new URL(request.url).searchParams.get("type");
-  if (!["contacts", "calls", "callbacks", "agents", "sessions"].includes(type ?? "")) {
+  if (!["contacts", "calls", "callbacks", "agents", "sessions", "session-events"].includes(type ?? "")) {
     return NextResponse.json({ error: "Choose a supported export." }, { status: 400 });
   }
 
@@ -222,6 +222,27 @@ export async function GET(request: Request) {
         { label: "Calls", value: (row) => row.calls },
         { label: "Callbacks", value: (row) => row.callbacks },
         { label: "Active session", value: (row) => row.has_active_session },
+      ]);
+    }
+
+    if (type === "session-events") {
+      const rows = await readAll((from, to) => central.from("work_session_events")
+        .select("id, session_id, agent_id, event_type, reason, occurred_at")
+        .eq("company_id", session.companyId!)
+        .order("occurred_at", { ascending: false })
+        .range(from, to));
+      const companyAgents = await listCompanyAgentProfiles(session.companyId);
+      const agents = new Map(companyAgents.map((agent) => [agent.id, agent.email]));
+      return responseCsv("session-events", rows.map((row) => ({
+        ...row,
+        agent_email: agents.get(row.agent_id) ?? "",
+      })), [
+        { label: "Event ID", value: (row) => row.id },
+        { label: "Session ID", value: (row) => row.session_id },
+        { label: "Agent", value: (row) => row.agent_email },
+        { label: "Event", value: (row) => row.event_type },
+        { label: "Occurred at", value: (row) => row.occurred_at },
+        { label: "Reason", value: (row) => row.reason },
       ]);
     }
 

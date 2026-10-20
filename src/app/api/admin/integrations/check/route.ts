@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getCompanyIntegration } from "@/lib/integration-secrets";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { getCrazytelApiBaseUrl } from "@/lib/crazytel-api";
 
 export const dynamic = "force-dynamic";
 
@@ -69,27 +70,47 @@ export async function POST(request: Request) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8_000);
     let state: "connected" | "failed" = "failed";
-    let message = "The Crazytel API key check failed.";
+    let message = "Crazytel checks could not be completed.";
+    const checks: Array<{ name: string; state: "success" | "failure" | "blocked"; message: string }> = [];
     try {
       const { config, credentials } = await getCompanyIntegration(session.companyId, "crazytel");
       const apiKey = credentials.apiKey ?? "";
-      const baseUrl = typeof config?.settings.apiBaseUrl === "string" ? config.settings.apiBaseUrl : "https://api.crazytel.io";
+      const baseUrl = getCrazytelApiBaseUrl(typeof config?.settings.apiBaseUrl === "string" ? config.settings.apiBaseUrl : "https://api.crazytel.io");
       if (!config?.enabled || !apiKey) return response("blocked", "Enable Crazytel and configure this company's API key first.");
-      const endpoint = new URL("/api/v1/balance/", baseUrl);
-      const result = await fetch(endpoint, {
-        headers: { Accept: "application/json", "X-Crazytel-Api-Key": apiKey },
-        cache: "no-store",
-        signal: controller.signal,
+      const headers = { Accept: "application/json", "X-Crazytel-Api-Key": apiKey };
+      const requests = [
+        { name: "API authentication and account balance", path: "/api/v1/balance/" },
+        { name: "SIP trunk API", path: "/api/v1/sip-trunks/" },
+        { name: "Hybrid call-recordings API", path: "/api/v1/hybrid-sip-trunks/siprec-recordings?limit=1" },
+      ];
+      const results = await Promise.all(requests.map(async ({ name, path }) => {
+        try {
+          const result = await fetch(new URL(path, baseUrl), { headers, cache: "no-store", signal: controller.signal });
+          return { name, state: result.ok ? "success" as const : "failure" as const, message: result.ok ? `Available (HTTP ${result.status}).` : `Unavailable (HTTP ${result.status}).` };
+        } catch {
+          return { name, state: "failure" as const, message: "Request failed or timed out." };
+        }
+      }));
+      checks.push(...results);
+      const sipUri = credentials.webrtcSipUri ?? "";
+      const webrtcPassword = credentials.webrtcPassword ?? "";
+      checks.push({
+        name: "Company WebRTC identity",
+        state: sipUri.startsWith("sip:") && Boolean(webrtcPassword) ? "success" : "failure",
+        message: sipUri.startsWith("sip:") && webrtcPassword ? "SIP URI and WebRTC password are saved; actual SIP registration still needs a browser test." : "Enter a valid SIP URI and dedicated WebRTC password.",
       });
-      if (!result.ok) message = `Crazytel API key check failed with HTTP ${result.status}. No call was placed.`;
-      else { state = "connected"; message = "Crazytel API key authenticated. No call was placed; browser WebRTC credentials are checked at call start."; }
+      const failed = checks.filter((check) => check.state === "failure");
+      state = failed.length ? "failed" : "connected";
+      message = failed.length
+        ? `${failed.length} check(s) need attention. This check does not place a call or confirm SIP registration.`
+        : "API, trunk list and recording endpoint responded; WebRTC credentials are present. This does not confirm an actual call or recording.";
     } catch {
-      message = "Could not reach the configured Crazytel API host. Verify its company settings and network access.";
+      message = "Could not load Crazytel settings or reach the configured API host.";
     } finally {
       clearTimeout(timeout);
     }
     await createSupabaseServiceClient().from("company_integrations").update({ connection_status: state, last_error: state === "failed" ? message : null, last_checked_at: new Date().toISOString() }).eq("company_id", session.companyId).eq("provider", "crazytel");
-    return response(state === "connected" ? "success" : "failure", message);
+    return NextResponse.json({ state: state === "connected" ? "success" : "failure", message, checks });
   }
 
   return response("failure", "Choose a supported integration to test.", 400);

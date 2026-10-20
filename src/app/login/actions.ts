@@ -139,5 +139,12 @@ export async function submitOtp(_prevState: unknown, formData: FormData) {
     return { ok: false, message: "This account is not enabled for an active company. Contact your administrator." };
   }
 
+  if (membership.role === "agent") {
+    const { error: loginEventError } = await supabase.rpc("record_agent_login");
+    if (loginEventError) {
+      console.error("Agent sign-in event could not be recorded", { code: loginEventError.code });
+    }
+  }
+
   redirect(membership.role === "admin" ? "/dashboard" : "/open-queue");
 }

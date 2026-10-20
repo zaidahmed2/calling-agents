@@ -14,10 +14,11 @@ import ContactEditor from "@/app/contacts/[id]/contact-editor";
 import { listActiveAgentProfiles } from "@/lib/assignable-agents";
 import { createCompanyCrmClient } from "@/lib/company-database";
 import { getAgentContactFields, STANDARD_AGENT_CONTACT_FIELDS } from "@/lib/agent-contact-fields";
+import { CallRecording } from "@/components/call-recording";
 
 export const dynamic = "force-dynamic";
 
-type CallRow = { id: string; agent_id: string; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
+type CallRow = { id: string; agent_id: string; provider_call_id: string | null; current_state: string; requested_at: string; answered_at: string | null; ended_at: string | null; verified_duration_seconds: number | null; outcome: string | null };
 type DispositionRow = { call_id: string; outcome: string; note: string | null; qualified: boolean; callback_at: string | null; created_at: string };
 type CallbackRow = { id: string; due_at: string; timezone: string; status: string; completed_at: string | null };
 
@@ -61,7 +62,7 @@ export default async function ContactDetailPage({ params, searchParams }: { para
     const supabase = await createSupabaseServerClient();
     const { client: crm } = await createCompanyCrmClient(session.companyId);
     const [callResult, callbackResult, agentResult] = await Promise.all([
-      crm.from("calls").select("id, agent_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("internal_contact_id", id).order("requested_at", { ascending: false }).range((callsPage - 1) * pageSize, callsPage * pageSize - 1),
+      crm.from("calls").select("id, agent_id, provider_call_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("internal_contact_id", id).order("requested_at", { ascending: false }).range((callsPage - 1) * pageSize, callsPage * pageSize - 1),
       crm.from("callbacks").select("id, due_at, timezone, status, completed_at").eq("company_id", session.companyId).eq("internal_contact_id", id).order("due_at", { ascending: false }).limit(50),
       contact.assignedUserId ? supabase.from("profiles").select("normalized_email").eq("id", contact.assignedUserId).maybeSingle() : Promise.resolve({ data: null, error: null }),
     ]);
@@ -102,7 +103,7 @@ export default async function ContactDetailPage({ params, searchParams }: { para
       </section>
       <section className={styles.profilePanel} id="call-history">
         <header className={styles.panelHeader}><div><span className={styles.eyebrow}>CALL HISTORY</span><h2>Saved calls</h2></div><StatusBadge tone="neutral">{callCount} records</StatusBadge></header>
-        {!historyAvailable ? <EmptyState title="History unavailable" detail="Check database connectivity and permissions." icon={<AudioLines size={17} />} /> : calls.length ? <><div className={styles.historyList}>{calls.map((call) => { const disposition = latestDisposition.get(call.id); return <article className={styles.historyItem} key={call.id}><div className={styles.historyGlyph}><AudioLines size={15} /></div><div className={styles.historyBody}><div><strong>{disposition?.outcome ?? call.outcome ?? call.current_state}</strong><time>{new Date(call.requested_at).toLocaleString()}</time></div><span>{call.current_state} · {call.verified_duration_seconds === null ? "Duration unavailable" : `${Math.floor(call.verified_duration_seconds / 60)}m ${String(call.verified_duration_seconds % 60).padStart(2, "0")}s`}</span>{disposition?.note ? <p>{disposition.note}</p> : null}{disposition?.qualified ? <StatusBadge tone="success">Qualified</StatusBadge> : null}</div></article>; })}</div><nav className={styles.historyPagination} aria-label="Contact call history pages"><span>Page {callsPage} of {pageCount} · {callCount} records</span><div><a href={callPageHref(Math.max(1, callsPage - 1))} aria-disabled={callsPage <= 1}>Previous</a><a href={callPageHref(Math.min(pageCount, callsPage + 1))} aria-disabled={callsPage >= pageCount}>Next</a></div></nav></> : <EmptyState title="No call history" detail="No call records have been saved for this contact." icon={<AudioLines size={17} />} />}
+        {!historyAvailable ? <EmptyState title="History unavailable" detail="Check database connectivity and permissions." icon={<AudioLines size={17} />} /> : calls.length ? <><div className={styles.historyList}>{calls.map((call) => { const disposition = latestDisposition.get(call.id); return <article className={styles.historyItem} key={call.id}><div className={styles.historyGlyph}><AudioLines size={15} /></div><div className={styles.historyBody}><div><strong>{disposition?.outcome ?? call.outcome ?? call.current_state}</strong><time>{new Date(call.requested_at).toLocaleString()}</time></div><span>{call.current_state} · {call.verified_duration_seconds === null ? "Duration unavailable" : `${Math.floor(call.verified_duration_seconds / 60)}m ${String(call.verified_duration_seconds % 60).padStart(2, "0")}s`}</span>{call.provider_call_id && (session.role === "admin" || call.agent_id === session.id) ? <CallRecording callId={call.id} /> : null}{disposition?.note ? <p>{disposition.note}</p> : null}{disposition?.qualified ? <StatusBadge tone="success">Qualified</StatusBadge> : null}</div></article>; })}</div><nav className={styles.historyPagination} aria-label="Contact call history pages"><span>Page {callsPage} of {pageCount} · {callCount} records</span><div><a href={callPageHref(Math.max(1, callsPage - 1))} aria-disabled={callsPage <= 1}>Previous</a><a href={callPageHref(Math.min(pageCount, callsPage + 1))} aria-disabled={callsPage >= pageCount}>Next</a></div></nav></> : <EmptyState title="No call history" detail="No call records have been saved for this contact." icon={<AudioLines size={17} />} />}
       </section>
     </div>
     <section className={styles.profilePanel}>
