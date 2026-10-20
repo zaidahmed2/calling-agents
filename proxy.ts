@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ADMIN_COMPANY_CONTEXT_COOKIE, isCompanyId } from "@/lib/auth";
+
 function isPublicPath(pathname: string) {
   return pathname === "/login"
     || pathname.startsWith("/api/webhooks/")
@@ -65,6 +67,7 @@ export async function proxy(request: NextRequest) {
   const isSuperAdmin = profile.platform_role === "super_admin";
   if (isSuperAdmin) {
     if (pathname.startsWith("/super-admin") || pathname.startsWith("/api/super-admin")) return response;
+    if (isCompanyId(request.cookies.get(ADMIN_COMPANY_CONTEXT_COOKIE)?.value)) return response;
     return isApi
       ? NextResponse.json({ error: "Platform administrator access is required for this endpoint." }, { status: 403 })
       : NextResponse.redirect(new URL("/super-admin", request.url));

@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { listActiveAgentProfiles } from "@/lib/assignable-agents";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
-import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { getLatestCallDatesByContact } from "@/lib/contact-history";
 import { listCompanyContacts } from "@/lib/contacts";
 import { createCompanyCrmClient } from "@/lib/company-database";
@@ -165,8 +164,7 @@ export async function PATCH(request: Request) {
         p_status: typeof status === "string" ? status.trim() : null,
         p_actor_id: session.id,
       };
-    const rpcClient = mode === "shared" ? createSupabaseServiceClient() : supabase;
-    const { data, error } = await rpcClient.rpc("admin_update_company_contacts", args);
+    const { data, error } = await supabase.rpc("admin_update_company_contacts", args);
     if (error) return errorResponse(error.message.includes("company_contact_not_found") ? 404 : 503, "One or more contacts could not be updated for this company.");
     return NextResponse.json({ results: contactIds.map((contactId) => ({ contactId, ok: true, message: "Updated in CRM." })), succeeded: Number(data ?? 0), failed: 0 });
   } catch {

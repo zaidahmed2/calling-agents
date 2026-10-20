@@ -24,7 +24,7 @@ type CallbackRow = { id: string; due_at: string; timezone: string; status: strin
 export default async function ContactDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams?: Promise<{ message?: string; callsPage?: string; size?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.companyId || session.isSuperAdmin) redirect(session.isSuperAdmin ? "/super-admin" : "/login?access=denied");
+  if (!session.companyId || (session.isSuperAdmin && !session.isImpersonating)) redirect(session.isSuperAdmin ? "/super-admin" : "/login?access=denied");
   const { id } = await params;
   const query = searchParams ? await searchParams : {};
   const callsPage = Math.max(1, Number(query.callsPage) || 1);

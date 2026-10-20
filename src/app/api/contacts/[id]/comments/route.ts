@@ -10,14 +10,14 @@ export const dynamic = "force-dynamic";
 const commentLimiter = createRateLimiter({ limit: 20, windowMs: 60_000 });
 const contactIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function getCommentsClient(companyId: string) {
+async function getCommentsClient(companyId: string, isImpersonating: boolean) {
   const { client, mode } = await createCompanyCrmClient(companyId);
-  return mode === "shared" ? createSupabaseServiceClient() : client;
+  return mode === "shared" && !isImpersonating ? createSupabaseServiceClient() : client;
 }
 
-async function authorizeContact(contactId: string, companyId: string, actorId: string, role: string) {
+async function authorizeContact(contactId: string, companyId: string, actorId: string, role: string, isImpersonating: boolean) {
   if (!contactIdPattern.test(contactId)) return null;
-  const client = await getCommentsClient(companyId);
+  const client = await getCommentsClient(companyId, isImpersonating);
   const { data, error } = await client.from("contacts")
     .select("id, assigned_agent_id")
     .eq("id", contactId)
@@ -35,7 +35,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
   try {
     const { id } = await params;
-    const client = await authorizeContact(id, session.companyId, session.id, session.role);
+    const client = await authorizeContact(id, session.companyId, session.id, session.role, session.isImpersonating);
     if (!client) return NextResponse.json({ error: "This contact is not available to you." }, { status: 404 });
     const { data, error } = await client.from("activity_logs")
       .select("id, actor_id, metadata, created_at")
@@ -85,7 +85,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   try {
     const { id } = await params;
-    const client = await authorizeContact(id, session.companyId, session.id, session.role);
+    const client = await authorizeContact(id, session.companyId, session.id, session.role, session.isImpersonating);
     if (!client) return NextResponse.json({ error: "This contact is not available to you." }, { status: 404 });
     const { data, error } = await client.from("activity_logs").insert({
       company_id: session.companyId,

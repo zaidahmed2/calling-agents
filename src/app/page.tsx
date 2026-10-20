@@ -11,6 +11,6 @@ export default async function HomePage() {
     redirect("/login");
   }
 
-  if (session.isSuperAdmin) redirect("/super-admin");
+  if (session.isSuperAdmin && !session.isImpersonating) redirect("/super-admin");
   redirect(session.role === "admin" ? "/dashboard" : "/open-queue");
 }

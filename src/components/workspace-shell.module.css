@@ -52,4 +52,7 @@
 .pageHeader h1 { margin: 5px 0 0; color: var(--text); font-size: 26px; line-height: 1.2; font-weight: 800; }
 .pageHeader p { margin: 6px 0 0; color: var(--text-soft); font-size: 12px; }
 .headerRole { padding: 6px 9px; border: 1px solid #e4ead9; border-radius: 999px; color: var(--primary-strong); background: #f5f8ee; font-size: 9px; font-weight: 800; letter-spacing: .35px; }
+.platformContext { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid #cfe2d4;border-radius:7px;background:#e8f5ec;color:#176c4a;font-size:12px;font-weight:700; }
+.platformContext form { margin:0; }
+.platformContext button { padding:7px 10px;border:1px solid #a9cbb4;border-radius:5px;background:#fff;color:#176c4a;font:inherit;font-size:11px;cursor:pointer; }
 @media (max-width: 760px) { .layout { grid-template-columns: 1fr; gap: 12px; padding: 12px; } .sidebar { position: static; height: auto; padding: 11px; } .brand { padding: 0 4px 11px; } .workspaceLabel,.adminSettings { display: none; } .nav { display: flex; flex-wrap: wrap; gap: 4px; } .navLink,.active { min-height: 36px; padding: 0 10px; font-size: 11px; } .account { border-top: 1px solid var(--border); padding-top: 9px; } .main { padding: 3px 1px 24px; } .pageHeader { min-height: 66px; margin-bottom: 13px; } .pageHeader h1 { font-size: 23px; } }
