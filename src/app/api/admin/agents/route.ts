@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { listCompanyAgentProfiles } from "@/lib/assignable-agents";
-import { env } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -60,10 +59,10 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
   if (session.role !== "admin" || !session.companyId) return NextResponse.json({ error: "Company administrator access is required." }, { status: 403 });
-  if (!isWithinRateLimit(agentLimiter, session.id)) return NextResponse.json({ error: "Too many agent invitations. Try again shortly." }, { status: 429 });
+  if (!isWithinRateLimit(agentLimiter, session.id)) return NextResponse.json({ error: "Too many agent additions. Try again shortly." }, { status: 429 });
 
   let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid agent invitation." }, { status: 400 }); }
+  try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid agent details." }, { status: 400 }); }
   const email = body && typeof body === "object" && typeof (body as Record<string, unknown>).email === "string"
     ? ((body as Record<string, unknown>).email as string).trim().toLowerCase()
     : "";
@@ -73,10 +72,14 @@ export async function POST(request: Request) {
   try { service = createSupabaseServiceClient(); } catch {
     return NextResponse.json({ error: "Agent onboarding requires server-side Supabase service credentials." }, { status: 503 });
   }
-  const { data: invited, error: inviteError } = await service.auth.admin.inviteUserByEmail(email, { redirectTo: `${env.appUrl}/login` });
-  if (inviteError || !invited.user) return NextResponse.json({ error: inviteError?.message.includes("already") ? "That email already has an Auth account. Ask the platform administrator to link it." : "The agent invitation could not be sent." }, { status: 409 });
+  const { data: created, error: createError } = await service.auth.admin.createUser({ email, email_confirm: false });
+  if (createError || !created.user) return NextResponse.json({
+    error: createError?.message.toLowerCase().includes("already")
+      ? "That email already has a Supabase Auth account and cannot be added as a new agent."
+      : "The agent account could not be created.",
+  }, { status: 409 });
 
-  const userId = invited.user.id;
+  const userId = created.user.id;
   const { error: profileError } = await service.from("profiles").insert({ id: userId, normalized_email: email, ghl_user_id: null, app_role: "agent", is_active: true });
   const { error: membershipError } = profileError
     ? { error: profileError }

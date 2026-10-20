@@ -59,13 +59,13 @@ export default function AdminAgentRoster() {
         body: JSON.stringify({ email: inviteEmail }),
       });
       const result = await response.json() as { agent?: { id: string; email: string }; error?: string };
-      if (!response.ok || !result.agent) throw new Error(result.error ?? "Agent invitation could not be sent.");
+      if (!response.ok || !result.agent) throw new Error(result.error ?? "Agent could not be added.");
       setUsers((current) => [{ id: result.agent!.id, profileId: result.agent!.id, name: result.agent!.email, email: result.agent!.email, role: "agent", isActive: true, appEmail: result.agent!.email }, ...current]);
       setInviteEmail("");
-      setNotice(`Invitation sent to ${result.agent.email}.`);
+      setNotice(`${result.agent.email} was added. They can request a sign-in code from the login page.`);
       setLoaded(true);
     } catch (inviteError) {
-      setError(inviteError instanceof Error ? inviteError.message : "Agent invitation could not be sent.");
+      setError(inviteError instanceof Error ? inviteError.message : "Agent could not be added.");
     } finally {
       setInviting(false);
     }
@@ -99,11 +99,11 @@ export default function AdminAgentRoster() {
     {open ? <div className={styles.rosterPanel}>
       {loading ? <p className={styles.rosterMessage}>Loading team members…</p> : null}
       {error ? <p className={styles.rosterError} role="alert">{error}</p> : null}
-      {!loading && !error && users.length === 0 ? <p className={styles.rosterMessage}>No company agents yet. Invite an agent by email.</p> : null}
+      {!loading && !error && users.length === 0 ? <p className={styles.rosterMessage}>No company agents yet. Add an agent by email.</p> : null}
       {notice ? <p className={styles.rosterNotice} role="status">{notice}</p> : null}
       <form className={styles.agentInvite} onSubmit={(event) => void inviteAgent(event)}>
         <input type="email" required aria-label="Agent email" placeholder="agent@company.com" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} />
-        <button type="submit" disabled={inviting} aria-label="Invite agent" title="Invite agent"><UserPlus size={15} /></button>
+        <button type="submit" disabled={inviting} aria-label="Add agent" title="Add agent"><UserPlus size={15} /></button>
       </form>
       {users.length > 0 ? <>
         <input className={styles.rosterSearch} type="search" placeholder="Find a team member" aria-label="Search team members" value={search} onChange={(event) => setSearch(event.target.value)} />

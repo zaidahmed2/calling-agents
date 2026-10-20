@@ -12,7 +12,7 @@ export default async function AgentsPage() {
   if (session.isSuperAdmin) redirect("/super-admin");
   if (session.role !== "admin") redirect("/open-queue");
 
-  return <WorkspaceShell session={session} section="agents" title="Agents" subtitle="Invite teammates and manage access to your company workspace.">
+  return <WorkspaceShell session={session} section="agents" title="Agents" subtitle="Add teammates and manage access to your company workspace.">
     <AgentsManager />
   </WorkspaceShell>;
 }
