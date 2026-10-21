@@ -10,6 +10,7 @@ import styles from "@/app/recordings/recordings.module.css";
 type RecordingCall = {
   id: string;
   internal_contact_id: string | null;
+  requested_at: string;
   answered_at: string;
   verified_duration_seconds: number | null;
   manual_duration_seconds: number | null;
@@ -34,12 +35,21 @@ export default function RecordingsList({ calls, admin }: { calls: RecordingCall[
         const call = calls[index];
         if (!call) return;
         try {
-          const response = await fetch(`/api/calls/${encodeURIComponent(call.id)}/recording`, { cache: "no-store" });
-          const result = await response.json() as { available?: boolean; streamUrl?: string; error?: string };
-          if (!response.ok) throw new Error(result.error ?? "Recording could not be checked.");
-          const status: RecordingStatus = result.available && result.streamUrl
-            ? { state: "available", streamUrl: result.streamUrl }
-            : { state: "missing" };
+          let status: RecordingStatus = { state: "missing" };
+          const recentCall = Date.now() - new Date(call.requested_at).getTime() < 5 * 60 * 1000;
+          const maxAttempts = recentCall ? 3 : 1;
+          for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            if (!active) return;
+            if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 1500));
+            if (!active) return;
+            const response = await fetch(`/api/calls/${encodeURIComponent(call.id)}/recording`, { cache: "no-store" });
+            const result = await response.json() as { available?: boolean; streamUrl?: string; error?: string };
+            if (!response.ok) throw new Error(result.error ?? "Recording could not be checked.");
+            if (result.available && result.streamUrl) {
+              status = { state: "available", streamUrl: result.streamUrl };
+              break;
+            }
+          }
           if (active) setRecordings((current) => ({ ...current, [call.id]: status }));
         } catch (error) {
           if (active) setRecordings((current) => ({

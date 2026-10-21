@@ -99,7 +99,7 @@
 .bulkBar button { min-height: 34px; padding: 0 11px; border: 1px solid var(--primary); border-radius: 6px; color: white; background: var(--primary); font-size: 11px; font-weight: 700; }
 .bulkBar button:disabled { opacity: .45; cursor: not-allowed; }
 .tableScroll { overflow-x: auto; }
-.tableScroll table { width: 100%; min-width: 1120px; border-collapse: collapse; }
+.tableScroll table { width: 100%; min-width: 1240px; border-collapse: collapse; }
 .tableScroll th, .tableScroll td { padding: 12px 11px; border-bottom: 1px solid #eff1ed; text-align: left; color: var(--text-soft); font-size: 11px; vertical-align: middle; }
 .tableScroll th { color: var(--text-faint); background: #fbfcfa; font-size: 9px; font-weight: 800; letter-spacing: .45px; }
 .tableScroll tbody tr:hover { background: #fbfdf8; }

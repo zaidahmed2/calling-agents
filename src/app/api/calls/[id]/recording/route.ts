@@ -9,18 +9,19 @@ export const dynamic = "force-dynamic";
 
 type Recording = { call_uuid?: unknown; sip_call_id?: unknown };
 
-function recordingRows(payload: unknown): Recording[] {
-  if (Array.isArray(payload)) return payload.filter((row): row is Recording => Boolean(row && typeof row === "object"));
-  if (payload && typeof payload === "object") {
-    const body = payload as Record<string, unknown>;
-    const rows = Array.isArray(body.recordings) ? body.recordings
-      : Array.isArray(body.data) ? body.data
-        : Array.isArray(body.items) ? body.items
-          : Array.isArray(body.results) ? body.results
-            : [];
-    return rows.filter((row): row is Recording => Boolean(row && typeof row === "object"));
+function rowsFrom(value: unknown): Recording[] {
+  if (Array.isArray(value)) return value.filter((row): row is Recording => Boolean(row && typeof row === "object"));
+  if (!value || typeof value !== "object") return [];
+  const body = value as Record<string, unknown>;
+  for (const key of ["recordings", "data", "items", "results"]) {
+    const rows = rowsFrom(body[key]);
+    if (rows.length) return rows;
   }
   return [];
+}
+
+function recordingRows(payload: unknown): Recording[] {
+  return rowsFrom(payload);
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -31,11 +32,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   try {
     const { client: crm } = await createCompanyCrmClient(session.companyId);
-    let callQuery = crm.from("calls").select("id, agent_id, provider_call_id").eq("id", id).eq("company_id", session.companyId);
+    let callQuery = crm.from("calls").select("id, agent_id, provider_call_id, answered_at").eq("id", id).eq("company_id", session.companyId);
     if (session.role === "agent") callQuery = callQuery.eq("agent_id", session.id);
     const { data: call, error: callError } = await callQuery.maybeSingle();
     if (callError || !call) return NextResponse.json({ error: "This call is not available." }, { status: 404 });
-    if (!call.provider_call_id) return NextResponse.json({ available: false }, { headers: { "Cache-Control": "no-store" } });
+    if (!call.answered_at || !call.provider_call_id) return NextResponse.json({ available: false }, { headers: { "Cache-Control": "no-store" } });
 
     const { config, credentials } = await getCompanyIntegration(session.companyId, "crazytel");
     if (!config?.enabled || !credentials.apiKey) return NextResponse.json({ error: "Crazytel recording access is not configured." }, { status: 503 });
@@ -51,7 +52,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     });
     if (!recordingsResponse.ok) return NextResponse.json({ error: `Crazytel recording list failed (HTTP ${recordingsResponse.status}).` }, { status: 502 });
     const rows = recordingRows(await recordingsResponse.json());
-    const match = rows.find((row) => row.sip_call_id === call.provider_call_id && typeof row.call_uuid === "string");
+    const match = rows.find((row) => row.sip_call_id === call.provider_call_id?.trim() && typeof row.call_uuid === "string");
     if (!match || typeof match.call_uuid !== "string") return NextResponse.json({ available: false }, { headers: { "Cache-Control": "no-store" } });
 
     if (new URL(request.url).searchParams.get("stream") !== "1") {

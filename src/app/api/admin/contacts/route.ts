@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { listActiveAgentProfiles } from "@/lib/assignable-agents";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
-import { getLatestCallDatesByContact } from "@/lib/contact-history";
+import { getLatestCallsByContact } from "@/lib/contact-history";
 import { listCompanyContacts } from "@/lib/contacts";
 import { createCompanyCrmClient } from "@/lib/company-database";
 
@@ -23,9 +23,13 @@ export async function GET(request: Request) {
   const offset = Number.isInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
   try {
     const [page, agents] = await Promise.all([listCompanyContacts({ companyId: session.companyId, offset, limit }), listActiveAgentProfiles()]);
-    const lastCallDates = await getLatestCallDatesByContact(session.companyId, page.contacts.map((contact) => contact.id));
+    const latestCalls = await getLatestCallsByContact(session.companyId, page.contacts.map((contact) => contact.id));
     return NextResponse.json({
-      contacts: page.contacts.map((contact) => ({ ...contact, lastCallAt: lastCallDates[contact.id] ?? null })),
+      contacts: page.contacts.map((contact) => ({
+        ...contact,
+        lastCallAt: latestCalls[contact.id]?.lastCallAt ?? null,
+        latestCallStatus: latestCalls[contact.id]?.latestCallStatus ?? "unknown",
+      })),
       nextCursor: page.nextOffset === null ? null : { startAfter: String(page.nextOffset), startAfterId: "offset" },
       total: page.total,
       agents: agents.map((agent) => ({ id: agent.id, email: agent.email, ghlUserId: agent.id, name: agent.name })),

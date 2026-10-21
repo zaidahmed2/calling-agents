@@ -19,6 +19,7 @@ export const env = {
   supabaseUrl: read("NEXT_PUBLIC_SUPABASE_URL") ?? "",
   supabaseAnonKey: read("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") ?? read("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? "",
   supabaseServiceRoleKey: read("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  supabaseManagementApiToken: read("SUPABASE_MANAGEMENT_API_TOKEN") ?? "",
   supabaseJwtSecret: read("SUPABASE_JWT_SECRET") ?? "",
   integrationEncryptionKey: read("INTEGRATION_ENCRYPTION_KEY") ?? "",
 

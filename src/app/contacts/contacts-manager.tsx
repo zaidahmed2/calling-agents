@@ -12,7 +12,7 @@ import { Pagination, SearchField, StatusBadge } from "@/components/ui";
 import styles from "@/app/contacts/contacts-manager.module.css";
 
 type Agent = { id: string; email: string; ghlUserId: string; name: string };
-type ContactRow = GhlContact & { lastCallAt: string | null };
+type ContactRow = GhlContact & { lastCallAt: string | null; latestCallStatus: "picked" | "not-picked" | "not-called" | "in-progress" | "unknown" };
 type ApiState = { contacts: ContactRow[]; nextCursor: GhlCursor | null; total: number | null; agents: Agent[]; statusFieldConfigured: boolean };
 type UpdateResult = { results: Array<{ contactId: string; ok: boolean; message: string }>; succeeded: number; failed: number };
 type ImportMapping = { name: string; firstName: string; lastName: string; phone: string; email: string; status: string; subject: string; notes: string; leadSource: string };
@@ -48,6 +48,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [agentFilter, setAgentFilter] = useState("all");
+  const [callFilter, setCallFilter] = useState("all");
   const [sort, setSort] = useState<{ key: "name" | "status" | "agent"; direction: "asc" | "desc" }>({ key: "name", direction: "asc" });
   const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(false);
@@ -91,7 +92,8 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
     const matchesSearch = !needle || contact.name.toLowerCase().includes(needle) || contact.id.toLowerCase().includes(needle) || contact.email?.toLowerCase().includes(needle) || contact.phone?.includes(needle);
     const matchesStatus = statusFilter === "all" || (statusFilter === "unknown" ? !contact.status : contact.status?.toLowerCase() === statusFilter);
     const matchesAgent = agentFilter === "all" || (agentFilter === "unassigned" ? !contact.assignedUserId : contact.assignedUserId === agentFilter);
-    return matchesSearch && matchesStatus && matchesAgent;
+    const matchesCall = callFilter === "all" || contact.latestCallStatus === callFilter;
+    return matchesSearch && matchesStatus && matchesAgent && matchesCall;
   });
   const visibleContacts = [...filteredContacts].sort((left, right) => {
     const leftValue = sort.key === "name" ? left.name : sort.key === "status" ? left.status ?? "" : data.agents.find((agent) => agent.ghlUserId === left.assignedUserId)?.email ?? "";
@@ -356,6 +358,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
         <div className={styles.filters}>
           <label>Status <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="open">Open</option><option value="unknown">Unknown</option>{[...new Set(data.contacts.flatMap((contact) => contact.status ? [contact.status] : []))].filter((value) => value.toLowerCase() !== "open").map((value) => <option value={value.toLowerCase()} key={value}>{value}</option>)}</select></label>
           <label>Assigned agent <select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}><option value="all">All agents</option><option value="unassigned">Unassigned</option>{data.agents.map((agent) => <option value={agent.ghlUserId} key={agent.id}>{agent.email}</option>)}</select></label>
+          <label>Call result <select value={callFilter} onChange={(event) => setCallFilter(event.target.value)}><option value="all">All call results</option><option value="picked">Picked</option><option value="not-picked">Not picked</option><option value="not-called">Not called</option><option value="in-progress">In progress</option></select></label>
           <span className={styles.filterCount}>{visibleContacts.length} shown on this page</span>
         </div>
 
@@ -370,7 +373,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
 
         <div className={styles.tableScroll}>
           <table>
-            <thead><tr><th><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Select visible contacts" /></th><th><button className={styles.sortButton} onClick={() => changeSort("name")}>CONTACT {sort.key === "name" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th>EMAIL</th><th>PHONE</th><th><button className={styles.sortButton} onClick={() => changeSort("status")}>STATUS {sort.key === "status" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th><button className={styles.sortButton} onClick={() => changeSort("agent")}>ASSIGNED AGENT {sort.key === "agent" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th>LAST ACTIVITY</th><th>LAST CALL</th><th>ACTIONS</th></tr></thead>
+            <thead><tr><th><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Select visible contacts" /></th><th><button className={styles.sortButton} onClick={() => changeSort("name")}>CONTACT {sort.key === "name" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th>EMAIL</th><th>PHONE</th><th><button className={styles.sortButton} onClick={() => changeSort("status")}>STATUS {sort.key === "status" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th><button className={styles.sortButton} onClick={() => changeSort("agent")}>ASSIGNED AGENT {sort.key === "agent" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th>LAST ACTIVITY</th><th>LAST CALL</th><th>CALL RESULT</th><th>ACTIONS</th></tr></thead>
             <tbody>
               {visibleContacts.map((contact) => {
                 const agent = data.agents.find((item) => item.ghlUserId === contact.assignedUserId);
@@ -383,11 +386,12 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
                   <td>{agent?.email ?? (contact.assignedUserId ? "Agent unavailable" : "Unassigned")}</td>
                   <td>{formatDate(contact.lastActivityAt)}</td>
                   <td>{formatDate(contact.lastCallAt)}</td>
+                  <td><StatusBadge tone={contact.latestCallStatus === "picked" ? "success" : contact.latestCallStatus === "not-picked" ? "warning" : "neutral"}>{contact.latestCallStatus === "not-called" ? "Not called" : contact.latestCallStatus === "in-progress" ? "In progress" : contact.latestCallStatus === "unknown" ? "Unknown" : contact.latestCallStatus}</StatusBadge></td>
                   <td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} className={styles.viewContact} aria-label={`Open ${contact.name}`}><ExternalLink size={14} /></Link></td>
                 </tr>;
               })}
-              {!loading && visibleContacts.length === 0 ? <tr><td colSpan={9} className={styles.empty}>{error ? "Contacts are unavailable." : search || statusFilter !== "all" || agentFilter !== "all" ? "No contacts on this page match these filters." : "No contacts in this company yet."}</td></tr> : null}
-              {loading ? <tr><td colSpan={9} className={styles.empty}>Loading contacts...</td></tr> : null}
+              {!loading && visibleContacts.length === 0 ? <tr><td colSpan={10} className={styles.empty}>{error ? "Contacts are unavailable." : search || statusFilter !== "all" || agentFilter !== "all" || callFilter !== "all" ? "No contacts on this page match these filters." : "No contacts in this company yet."}</td></tr> : null}
+              {loading ? <tr><td colSpan={10} className={styles.empty}>Loading contacts...</td></tr> : null}
             </tbody>
           </table>
         </div>

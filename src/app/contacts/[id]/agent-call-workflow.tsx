@@ -363,6 +363,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
         <header className={styles.dispositionHeader}><div><span className={styles.eyebrow}>CRAZYTEL WEBRTC</span><h2 id="active-call-title">{callStatus}</h2><p>{contactName}</p></div><StatusBadge tone={callStatus === "Connected" ? "success" : "warning"}>{callStatus}</StatusBadge></header>
         <div className={styles.activeCallTimer}><Clock3 size={24} /><strong>{formatDuration(elapsedSeconds)}</strong></div>
         <p className={styles.workflowDisclosure}>The timer starts when the call is answered. Ringing time is not counted; verified CDR reconciliation is not yet enabled.</p>
+        <label className={styles.liveNotes}>Call notes<textarea rows={4} maxLength={5000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add important details while you speak…" /><small>{note.length}/5000 · Notes stay here for the call result.</small></label>
         {error ? <p className={styles.workflowError} role="alert">{error}</p> : null}
         <Button variant="secondary" onClick={() => void endCall()} disabled={busy}><PhoneOff size={15} /> {busy ? "Ending…" : "End call"}</Button>
       </section></div>}

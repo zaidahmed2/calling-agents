@@ -3,8 +3,11 @@
 .toolbar > div { display: grid; gap: 4px; }
 .toolbar strong { color: var(--text); font-size: 12px; }
 .toolbar small { color: var(--text-faint); font-size: 9px; }
+.callFilters { display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #eff1ed;color:var(--text-faint);font-size:9px }
+.callFilters label { display:flex;align-items:center;gap:7px;color:var(--text-soft);font-size:10px;font-weight:700 }
+.callFilters select { min-height:31px;padding:0 9px;border:1px solid var(--border);border-radius:6px;color:var(--text);background:#fff;font:inherit;font-size:10px }
 .tableScroll { overflow-x: auto; }
-.tableScroll table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.tableScroll table { width: 100%; min-width: 840px; border-collapse: collapse; }
 .tableScroll th,.tableScroll td { padding: 11px 13px; border-bottom: 1px solid #eff1ed; text-align: left; color: var(--text-soft); font-size: 10px; }
 .tableScroll th { color: var(--text-faint); background: #fbfcfa; font-size: 8px; font-weight: 850; letter-spacing: .7px; }
 .tableScroll tbody tr:hover { background: #fbfdf8; }

@@ -4,7 +4,7 @@ import { WorkspaceShell } from "@/components/workspace-shell";
 import type { GhlContact } from "@/lib/ghl-contact-data";
 import { listCompanyContacts } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
-import { getLatestCallDatesByContact } from "@/lib/contact-history";
+import { getLatestCallsByContact, type ContactCallStatus } from "@/lib/contact-history";
 import { listAssignableAgents } from "@/lib/assignable-agents";
 import ContactsManager from "@/app/contacts/contacts-manager";
 
@@ -21,7 +21,7 @@ export default async function ContactsManagementPage() {
   let initialData: {
     nextCursor: ContactCursor | null;
     total: number;
-    contacts: Array<GhlContact & { lastCallAt: string | null }>;
+    contacts: Array<GhlContact & { lastCallAt: string | null; latestCallStatus: ContactCallStatus }>;
     agents: Array<{ id: string; email: string; ghlUserId: string; name: string }>;
     statusFieldConfigured: boolean;
   } = { contacts: [], nextCursor: null, total: 0, agents: [], statusFieldConfigured: true };
@@ -32,10 +32,14 @@ export default async function ContactsManagementPage() {
       listCompanyContacts({ companyId: session.companyId, limit: 25 }),
       listAssignableAgents(),
     ]);
-    const lastCallDates = await getLatestCallDatesByContact(session.companyId, page.contacts.map((contact) => contact.id));
+    const latestCalls = await getLatestCallsByContact(session.companyId, page.contacts.map((contact) => contact.id));
     initialData = {
       ...initialData,
-      contacts: page.contacts.map((contact) => ({ ...contact, lastCallAt: lastCallDates[contact.id] ?? null })),
+      contacts: page.contacts.map((contact) => ({
+        ...contact,
+        lastCallAt: latestCalls[contact.id]?.lastCallAt ?? null,
+        latestCallStatus: latestCalls[contact.id]?.latestCallStatus ?? "unknown",
+      })),
       nextCursor: page.nextOffset === null ? null : { startAfter: String(page.nextOffset), startAfterId: "offset" },
       total: page.total,
       agents: agents.map((agent) => ({ ...agent, ghlUserId: agent.id })),

@@ -24,6 +24,7 @@ export type AgentContact = {
   status: string | null;
   details: Array<{ id: string; label: string; value: string }>;
   lastComment: string | null;
+  callStatus: "picked" | "not-picked" | "not-called" | "in-progress" | "unknown";
 };
 
 const AGENT_FIELD_LABELS: Record<string, string> = {
@@ -61,6 +62,7 @@ export function toAgentContact(contact: GhlContact, visibleFields: string[] = ["
     status: allowed.has("status") ? contact.status : null,
     details,
     lastComment: null,
+    callStatus: "unknown",
   };
 }
 

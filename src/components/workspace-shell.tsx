@@ -5,6 +5,7 @@ import { Activity, AudioLines, CalendarClock, ChartNoAxesCombined, ContactRound,
 import { logout, returnToSuperAdmin } from "@/app/dashboard/actions";
 import { AppSession } from "@/lib/auth";
 import WorkSessionTimer from "@/app/open-queue/work-session-timer";
+import CompanyMigrationGuard from "@/components/company-migration-guard";
 import styles from "@/components/workspace-shell.module.css";
 
 type WorkspaceSection = "overview" | "contacts" | "agents" | "calls" | "recordings" | "callbacks" | "sessions" | "settings";
@@ -70,6 +71,7 @@ export function WorkspaceShell({
         </div>
       </aside>
       <section className={styles.main}>
+        <CompanyMigrationGuard enabled={session.role === "admin" || session.role === "agent"} admin={isAdmin} />
         {session.isImpersonating ? <div className={styles.platformContext}>
           <span>You are viewing this company as a Super Admin.</span>
           <form action={returnToSuperAdmin}><button type="submit">Return to Super Admin</button></form>

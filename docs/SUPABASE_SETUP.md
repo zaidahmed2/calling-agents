@@ -9,6 +9,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_SERVICE_ROLE_KEY
+SUPABASE_MANAGEMENT_API_TOKEN=YOUR_SERVER_ONLY_SUPABASE_MANAGEMENT_TOKEN
 INTEGRATION_ENCRYPTION_KEY=BASE64_OR_HEX_32_BYTE_KEY
 OTP_RATE_LIMIT_PER_MINUTE=5
 ```
@@ -43,7 +44,7 @@ External company projects use the separate, minimal tenant schema in `supabase/t
 
 Only Supabase-managed HTTPS project URLs (`https://<project-ref>.supabase.co`) are currently accepted. In `/super-admin`, open the company's database setup, enter the project ID (the server constructs its `https://<project-id>.supabase.co` URL), publishable key, and service-role key, then choose **Save / Configure**. The server encrypts the submitted credentials with `INTEGRATION_ENCRYPTION_KEY` and never returns them. After applying the tenant migration(s), choose **Verify Database**; this checks for tenant schema version `20261021_000002` and activates the company only after success. A failed verification leaves the company in setup and the saved credentials available for retry. The service-role key bypasses tenant RLS; it is only used server-side after the central auth/membership/role check, and every CRM query is additionally scoped to the resolved company and/or authorized agent.
 
-The app does not provision projects or run SQL against an external project. The project owner must apply the tenant migration first. Keep tenant migrations append-only and versioned; after changing tenant schema, add a new migration and update the application compatibility check deliberately.
+The app does not provision external projects. To enable the in-app **Update application** prompt for existing tenant projects, set `SUPABASE_MANAGEMENT_API_TOKEN` in the app hosting platform's server-only secret settings. The token must be authorized to run SQL against each connected tenant project (projects in customer-owned Supabase organizations require that owner to grant access); never use a `NEXT_PUBLIC_` variable or expose it to the browser. A company administrator can then apply the app's fixed, versioned pending tenant migrations from the blocking update prompt. Without a token that can access a tenant project, the prompt reports the setup requirement and the owner must apply the migration manually. The initial tenant schema still has to be installed before incremental migrations can run. Keep tenant migrations append-only and versioned, and update the fixed migration catalog and compatibility check whenever another tenant migration is released.
 
 The current company database is selected from central `company_databases` metadata for each server CRM operation. Company authentication, memberships, invitations, integration configuration/credentials and work sessions remain central. Contacts, assignment history, calls, dispositions, callbacks, and company operational/audit events use the selected CRM database. `contacts_cache` and historical GHL-only rows are not transferred by this feature.
 

@@ -12,6 +12,7 @@ Required names:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_MANAGEMENT_API_TOKEN` (server-only; required for one-click external tenant database migrations)
 - `SUPABASE_JWT_SECRET`
 - `GHL_PRIVATE_INTEGRATION_KEY`
 - `GHL_WEBHOOK_SECRET`

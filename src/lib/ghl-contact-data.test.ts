@@ -110,7 +110,7 @@ describe("GHL contact response parsing", () => {
     const source = normalizeGhlContact({ id: "agent-safe", name: "Ava Contact", email: "private@example.com", phone: "0400123456", city: "Newtown", assignedTo: "agent-1", customFields: [{ name: "Status", value: "Open" }] }, "status-id");
     const agentView = toAgentContact(source);
 
-    expect(agentView).toEqual({ id: "agent-safe", name: "Ava Contact", phoneVisible: true, maskedPhone: "••••••3456", status: null, details: [], lastComment: null });
+    expect(agentView).toEqual({ id: "agent-safe", name: "Ava Contact", phoneVisible: true, maskedPhone: "••••••3456", status: null, details: [], lastComment: null, callStatus: "unknown" });
     expect(agentView).not.toHaveProperty("email");
     expect(agentView).not.toHaveProperty("phone");
     expect(JSON.stringify(agentView)).not.toContain("private@example.com");

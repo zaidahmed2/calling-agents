@@ -3,6 +3,7 @@ import { toAgentContact } from "@/lib/ghl-contact-data";
 import { createCompanyCrmClient } from "@/lib/company-database";
 import { getAgentContactFields } from "@/lib/agent-contact-fields";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { getLatestCallsByContact } from "@/lib/contact-history";
 
 type ContactRow = {
   id: string;
@@ -133,6 +134,10 @@ export async function listContactsForAgent({ companyId, agentId, offset = 0, lim
     contact.lastComment = latestComments.get(row.id) ?? null;
     return contact;
   });
+  const latestCalls = await getLatestCallsByContact(companyId, contactIds);
+  for (const contact of agentContacts) {
+    contact.callStatus = latestCalls[contact.id]?.latestCallStatus ?? "unknown";
+  }
   return {
     contacts: agentContacts,
     total: count ?? 0,
