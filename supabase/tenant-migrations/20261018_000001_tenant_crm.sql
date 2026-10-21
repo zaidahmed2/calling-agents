@@ -335,7 +335,8 @@ begin
       and ct.company_id = p_company_id and ct.assigned_agent_id = p_agent_id and lower(ct.status) = 'open')
   for update;
   if target_call.id is null then raise exception 'manual_call_not_actionable'; end if;
-  duration_seconds := greatest(0, floor(extract(epoch from (now() - target_call.requested_at)))::integer);
+  duration_seconds := case when target_call.answered_at is null then 0
+    else greatest(0, floor(extract(epoch from (now() - target_call.answered_at)))::integer) end;
   update public.calls c set current_state = 'completed', ended_at = now(), manual_duration_seconds = duration_seconds
   where c.id = target_call.id returning * into target_call;
   insert into public.activity_logs (company_id, actor_id, event_type, target_type, target_id, metadata)
@@ -499,4 +500,4 @@ grant select, insert, update, delete on all tables in schema public to service_r
 grant usage, select on all sequences in schema public to service_role;
 
 insert into public.tenant_schema_migrations (version)
-values ('20261018_000001');
+values ('20261021_000002');

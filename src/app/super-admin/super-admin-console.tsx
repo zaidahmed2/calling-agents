@@ -244,7 +244,7 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
             {company.database?.database_mode === "external" && company.database.project_ref ? <span className={styles.projectRef}>Project: {company.database.project_ref}</span> : null}
           </div>
           {company.database?.database_mode === "external" && company.status === "setup" && setupCompanyId === company.id ? <div id={`database-setup-${company.id}`} className={styles.databaseSetup}>
-            <p>Apply <code>supabase/tenant-migrations/20261018_000001_tenant_crm.sql</code> in this company’s Supabase project first. The publishable key identifies the project; the service-role key is required for server-side CRM access and is encrypted before storage.</p>
+            <p>Apply <code>supabase/tenant-migrations/20261018_000001_tenant_crm.sql</code> in this company’s Supabase project first. For an existing tenant, also apply <code>supabase/tenant-migrations/20261021_000002_answered_call_duration.sql</code>. The publishable key identifies the project; the service-role key is required for server-side CRM access and is encrypted before storage.</p>
             <div className={styles.databaseFields}>
               <label>Supabase project ID<input type="text" autoComplete="off" value={externalDatabase[company.id]?.projectRef ?? ""} onChange={(event) => updateExternalDatabase(company.id, "projectRef", event.target.value)} placeholder="e.g. abcdefghijklmnopqrst" /></label>
               <label>Project publishable key<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.publishableKey ?? ""} onChange={(event) => updateExternalDatabase(company.id, "publishableKey", event.target.value)} /></label>

@@ -24,7 +24,7 @@ describe("company database URL validation", () => {
   });
 
   it("pins the tenant database readiness check to the shipped schema version", () => {
-    expect(TENANT_SCHEMA_VERSION).toBe("20261018_000001");
+    expect(TENANT_SCHEMA_VERSION).toBe("20261021_000002");
   });
 });
 

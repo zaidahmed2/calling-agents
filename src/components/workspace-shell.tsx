@@ -7,13 +7,14 @@ import { AppSession } from "@/lib/auth";
 import WorkSessionTimer from "@/app/open-queue/work-session-timer";
 import styles from "@/components/workspace-shell.module.css";
 
-type WorkspaceSection = "overview" | "contacts" | "agents" | "calls" | "callbacks" | "sessions" | "settings";
+type WorkspaceSection = "overview" | "contacts" | "agents" | "calls" | "recordings" | "callbacks" | "sessions" | "settings";
 
 const adminLinks = [
   { key: "overview", href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { key: "contacts", href: "/contacts", label: "Contacts", icon: ContactRound },
   { key: "agents", href: "/agents", label: "Agents", icon: UserRoundCog },
   { key: "calls", href: "/calls", label: "Call history", icon: AudioLines },
+  { key: "recordings", href: "/recordings", label: "Call recordings", icon: AudioLines },
   { key: "callbacks", href: "/callbacks", label: "Callbacks", icon: CalendarClock },
   { key: "sessions", href: "/sessions", label: "Agent activity", icon: Activity },
   { key: "settings", href: "/settings", label: "Settings", icon: Settings2 },
@@ -21,6 +22,7 @@ const adminLinks = [
 
 const agentLinks = [
   { key: "contacts", href: "/open-queue", label: "My contacts", icon: ContactRound },
+  { key: "recordings", href: "/recordings", label: "Call recordings", icon: AudioLines },
   { key: "callbacks", href: "/callbacks", label: "My callbacks", icon: CalendarClock },
   { key: "sessions", href: "/my-sessions", label: "My sessions", icon: Activity },
 ] as const;

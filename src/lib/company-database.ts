@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { decryptDatabaseCredentials, type DatabaseCredentials } from "@/lib/database-secrets";
 
-export const TENANT_SCHEMA_VERSION = "20261018_000001";
+export const TENANT_SCHEMA_VERSION = "20261021_000002";
 
 export type CompanyDatabaseMode = "shared" | "external";
 export type CompanyDatabaseMetadata = {

@@ -18,7 +18,6 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
   if (session.role !== "agent" || !session.companyId) return NextResponse.json({ error: "This contact is not available." }, { status: 404 });
-  if (!isWithinRateLimit(callLimiter, session.id)) return NextResponse.json({ error: "Call actions are temporarily limited. Try again shortly." }, { status: 429 });
 
   let payload: unknown;
   try { payload = await request.json(); } catch { return NextResponse.json({ error: "Invalid call action." }, { status: 400 }); }
@@ -26,6 +25,7 @@ export async function POST(request: Request) {
   const action = body.action;
 
   if (action === "start") {
+    if (!isWithinRateLimit(callLimiter, session.id)) return NextResponse.json({ error: "New calls are temporarily limited. Try again shortly." }, { status: 429 });
     const contactId = typeof body.contactId === "string" ? body.contactId : "";
     if (!(await getAgentContactFields(session.companyId, session.id)).includes("phone")) {
       return NextResponse.json({ error: "Your administrator has not enabled phone-number access for you." }, { status: 403 });

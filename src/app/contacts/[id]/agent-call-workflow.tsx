@@ -55,17 +55,33 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   const registererRef = useRef<Registerer | null>(null);
   const inviterRef = useRef<Inviter | null>(null);
   const endedRef = useRef(false);
+  const answeredAtRef = useRef<number | null>(null);
+  const answeredStatePromiseRef = useRef<Promise<void> | null>(null);
+  const reportedProviderStateRef = useRef<"ringing" | "answered" | null>(null);
+  const resultStatusRef = useRef<string | null>(null);
   const endCallRef = useRef<(sendBye: boolean) => Promise<void>>(async () => undefined);
 
   async function reportProviderCallState(callId: string, providerCallId: string, providerState: "ringing" | "answered") {
+    if (endedRef.current) return;
+    if (reportedProviderStateRef.current === "answered" || reportedProviderStateRef.current === providerState) return;
     if (!callId) throw new Error("Call record was not initialized before connecting to Crazytel.");
-    const response = await fetch("/api/calls/manual", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "provider-state", callId, providerCallId, providerState }),
-    });
+    reportedProviderStateRef.current = providerState;
+    let response: Response;
+    try {
+      response = await fetch("/api/calls/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "provider-state", callId, providerCallId, providerState }),
+      });
+    } catch (error) {
+      if (reportedProviderStateRef.current === providerState) reportedProviderStateRef.current = null;
+      throw error;
+    }
     const result = await response.json() as { error?: string };
-    if (!response.ok) throw new Error(result.error ?? "Crazytel call state could not be linked.");
+    if (!response.ok) {
+      if (reportedProviderStateRef.current === providerState) reportedProviderStateRef.current = null;
+      throw new Error(result.error ?? "Crazytel call state could not be linked.");
+    }
   }
 
   async function connectAndDial(configuration: TelephonyConfig, callRecordId: string) {
@@ -104,9 +120,11 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     inviterRef.current = inviter;
     inviter.stateChange.addListener((state) => {
       if (state === SessionState.Established) {
+        answeredAtRef.current = Date.now();
         setCallStatus("Connected");
-        void reportProviderCallState(callRecordId, providerCallId, "answered").catch((stateError: unknown) => {
-          setError(stateError instanceof Error ? stateError.message : "The answered call could not be linked to its record.");
+        answeredStatePromiseRef.current = reportProviderCallState(callRecordId, providerCallId, "answered");
+        void answeredStatePromiseRef.current.catch((stateError: unknown) => {
+          if (!endedRef.current) setError(stateError instanceof Error ? stateError.message : "The answered call could not be linked to its record.");
         });
         const handler = inviter.sessionDescriptionHandler as Web.SessionDescriptionHandler | undefined;
         if (audioRef.current && handler) {
@@ -114,17 +132,49 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
           void audioRef.current.play().catch(() => setError("Call connected. Click the page once if you cannot hear remote audio."));
         }
       } else if (state === SessionState.Terminated && !endedRef.current) {
-        setCallStatus("Call ended by remote party");
+        if (answeredAtRef.current === null) {
+          resultStatusRef.current ??= "Call ended before answer";
+          setCallStatus(resultStatusRef.current);
+          setOutcome("not-picked");
+        } else {
+          resultStatusRef.current ??= "Call ended by remote party";
+          setCallStatus("Call ended by remote party");
+        }
         void endCallRef.current(false);
       }
     });
-    await inviter.invite({ requestDelegate: { onProgress: () => {
-      setCallStatus("Ringing");
-      void reportProviderCallState(callRecordId, providerCallId, "ringing").catch((stateError: unknown) => {
-        setError(stateError instanceof Error ? stateError.message : "The ringing call could not be linked to its record.");
-      });
-    } } });
-    await reportProviderCallState(callRecordId, providerCallId, inviter.state === SessionState.Established ? "answered" : "ringing");
+    await inviter.invite({ requestDelegate: {
+      onProgress: () => {
+        setCallStatus("Ringing");
+        void reportProviderCallState(callRecordId, providerCallId, "ringing").catch((stateError: unknown) => {
+          if (!endedRef.current) setError(stateError instanceof Error ? stateError.message : "The ringing call could not be linked to its record.");
+        });
+      },
+      onReject: (response) => {
+        const statusCode = response.message.statusCode;
+        if (statusCode === 486 || statusCode === 600) {
+          resultStatusRef.current = "Busy";
+          setCallStatus("Busy");
+          setOutcome("busy");
+        } else if (statusCode === 603) {
+          resultStatusRef.current = "Declined";
+          setCallStatus("Declined");
+          setOutcome("not-picked");
+        } else if (statusCode === 408) {
+          resultStatusRef.current = "No answer";
+          setCallStatus("No answer");
+          setOutcome("not-picked");
+        } else if (statusCode === 480) {
+          resultStatusRef.current = "Temporarily unavailable";
+          setCallStatus("Temporarily unavailable");
+          setOutcome("not-picked");
+        } else {
+          resultStatusRef.current = `Call failed${statusCode ? ` (${statusCode})` : ""}`;
+          setCallStatus(resultStatusRef.current);
+          setOutcome("not-picked");
+        }
+      },
+    } });
   }
 
   const connectInitialCall = useEffectEvent(async (configuration: TelephonyConfig, callRecordId: string) => {
@@ -134,7 +184,8 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   useEffect(() => {
     if (!call || finishing) return;
     const interval = window.setInterval(() => {
-      const elapsed = Math.floor((Date.now() - new Date(call.requested_at).getTime()) / 1000);
+      const answeredAt = answeredAtRef.current;
+      const elapsed = answeredAt === null ? 0 : Math.floor((Date.now() - answeredAt) / 1000);
       setElapsedSeconds(Math.max(0, elapsed));
     }, 1000);
     return () => window.clearInterval(interval);
@@ -170,6 +221,11 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       setCall(started.call);
       setTelephony(started.telephony);
       endedRef.current = false;
+      answeredAtRef.current = null;
+      answeredStatePromiseRef.current = null;
+      reportedProviderStateRef.current = null;
+      resultStatusRef.current = null;
+      setOutcome("not-picked");
       setElapsedSeconds(0);
       await connectAndDial(started.telephony, started.call.call_id);
     } catch (startError) {
@@ -211,9 +267,11 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   async function finishServerCall(sendBye: boolean) {
     if (!call || endedRef.current) return;
     endedRef.current = true;
+    resultStatusRef.current ??= answeredAtRef.current === null ? "Call ended before answer" : "Call ended";
     setBusy(true);
     setError("");
     try {
+      await answeredStatePromiseRef.current?.catch(() => undefined);
       const inviter = inviterRef.current;
       if (sendBye && inviter) {
         if (inviter.state === SessionState.Established) await inviter.bye();
@@ -224,7 +282,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       const finalSeconds = result.manual_duration_seconds;
       setElapsedSeconds(finalSeconds);
       setCall((current) => current ? { ...current, ended_at: result.ended_at, manual_duration_seconds: finalSeconds } : current);
-      setCallStatus("Call ended");
+      setCallStatus(resultStatusRef.current ?? "Call ended");
       setFinishing(true);
       await registererRef.current?.unregister().catch(() => undefined);
       await userAgentRef.current?.stop().catch(() => undefined);
@@ -293,7 +351,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     {notice ? <p className={styles.workflowSuccess} role="status">{notice}</p> : null}
     <Button onClick={() => void startCall()} disabled={busy}><PhoneCall size={15} /> {busy ? "Starting…" : "Start call"}</Button></> : finishing ? <div className={styles.modalBackdrop}>
         <form className={styles.dispositionForm} role="dialog" aria-modal="true" aria-labelledby="call-result-title" onSubmit={(event) => void finishCall(event)}>
-          <header className={styles.dispositionHeader}><div><span className={styles.eyebrow}>CALL RESULT · {formatDuration(elapsedSeconds)}</span><h2 id="call-result-title">Save call details</h2><p>{contactName}</p></div></header>
+          <header className={styles.dispositionHeader}><div><span className={styles.eyebrow}>{callStatus.toUpperCase()} · {formatDuration(elapsedSeconds)}</span><h2 id="call-result-title">Save call details</h2><p>{contactName}</p></div></header>
           <label>Call stage<select required value={outcome} onChange={(event) => setOutcome(event.target.value as CallStage)}><option value="picked">Picked</option><option value="not-picked">Not picked</option><option value="call-later">Call later</option><option value="busy">Busy</option><option value="interested">Interested</option></select></label>
           {outcome === "call-later" ? <label>Callback date and time<input type="datetime-local" required value={callbackAt} onChange={(event) => setCallbackAt(event.target.value)} /></label> : null}
           <label>Message / call notes<textarea rows={4} maxLength={5000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a message or call notes" /></label>
@@ -304,7 +362,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
         <audio ref={audioRef} autoPlay />
         <header className={styles.dispositionHeader}><div><span className={styles.eyebrow}>CRAZYTEL WEBRTC</span><h2 id="active-call-title">{callStatus}</h2><p>{contactName}</p></div><StatusBadge tone={callStatus === "Connected" ? "success" : "warning"}>{callStatus}</StatusBadge></header>
         <div className={styles.activeCallTimer}><Clock3 size={24} /><strong>{formatDuration(elapsedSeconds)}</strong></div>
-        <p className={styles.workflowDisclosure}>Browser audio uses the configured Crazytel Hybrid SIP trunk. Call duration is recorded from the browser session; verified CDR reconciliation is not yet enabled.</p>
+        <p className={styles.workflowDisclosure}>The timer starts when the call is answered. Ringing time is not counted; verified CDR reconciliation is not yet enabled.</p>
         {error ? <p className={styles.workflowError} role="alert">{error}</p> : null}
         <Button variant="secondary" onClick={() => void endCall()} disabled={busy}><PhoneOff size={15} /> {busy ? "Ending…" : "End call"}</Button>
       </section></div>}
