@@ -11,5 +11,5 @@ export default async function SettingsPage() {
   if (!session) redirect("/login");
   if (session.role !== "admin") redirect("/open-queue");
 
-  return <WorkspaceShell session={session} section="settings" title="Settings" subtitle="Manage this company's integrations and calling provider."><SettingsConsole /></WorkspaceShell>;
+  return <WorkspaceShell session={session} section="settings" title="Settings & Integrations" subtitle="Manage company integrations and calling from one place."><SettingsConsole /></WorkspaceShell>;
 }

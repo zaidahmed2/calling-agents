@@ -100,6 +100,37 @@
 .secondaryButton,.iconButton { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border:1px solid var(--line); border-radius:5px; color:#334155; background:white; font:inherit; font-size:10px; font-weight:700; }
 .secondaryButton:disabled { opacity:.5; cursor:not-allowed; }
 .inlineResult { margin:0; font-size:10px; line-height:1.5; }
+.providerSummary { display:grid;gap:12px;padding:14px 0; }
+.providerSummary>p { margin:0;color:#536276;font-size:11px;line-height:1.5; }
+.modalBackdrop { position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;background:rgb(17 29 47 / 48%);backdrop-filter:blur(3px); }
+.settingsDialog { width:min(100%,560px);max-height:min(90vh,850px);overflow:auto;padding:20px;border:1px solid var(--border);border-radius:12px;background:#fff;box-shadow:0 24px 70px rgb(11 25 48 / 24%); }
+.settingsDialogWide { width:min(100%,980px); }
+.settingsDialog>header { display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:14px;border-bottom:1px solid #edf0f4; }
+.settingsDialog>header>div { display:flex;align-items:center;gap:11px; }
+.settingsDialog>header h2 { margin:0;font-size:15px; }
+.settingsDialog>header p { margin:4px 0 0;color:var(--muted);font-size:10px; }
+.settingsDialog>header>button { width:30px;height:30px;border:1px solid var(--line);border-radius:6px;color:#536276;background:white;font-size:20px;line-height:1; }
+.settingsDialogBody { max-height:calc(90vh - 90px);overflow:auto; }
+.callerIdHeader { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;padding:13px 0 9px;border-top:1px solid #edf0f4; }
+.callerIdHeader>div { display:grid;gap:4px; }
+.callerIdHeader strong { font-size:11px; }
+.callerIdHeader small { color:var(--muted);font-size:9px; }
+.callerIdNote { display:flex;gap:7px;margin:0 0 9px;padding:9px 10px;border-radius:6px;color:#825715;background:#fff8e9;font-size:9px;line-height:1.55; }
+.callerIdNote svg { flex:0 0 auto;margin-top:1px; }
+.callerIdList { display:grid;border:1px solid var(--border);border-radius:7px;overflow:hidden; }
+.callerIdRow { display:grid;grid-template-columns:minmax(120px,1fr) auto minmax(150px, .9fr) auto;align-items:center;gap:12px;padding:10px;border-bottom:1px solid #edf0f4; }
+.callerIdRow:last-child { border-bottom:0; }
+.callerIdRow>div { min-width:0;display:grid;gap:4px; }
+.callerIdRow>div strong { overflow:hidden;color:var(--ink);font-size:10px;text-overflow:ellipsis; }
+.callerIdRow>div small { color:var(--muted);font-size:9px; }
+.callerIdRow>label { display:grid;gap:4px;color:var(--muted);font-size:9px;font-weight:700; }
+.callerIdRow select { width:100%;height:32px;padding:0 7px;border:1px solid var(--border);border-radius:5px;color:var(--ink);background:white;font:inherit;font-size:10px; }
+.callerIdRowActions { display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px; }
+.assignCallerId { min-height:29px;padding:0 8px;border:1px solid var(--primary);border-radius:5px;color:white;background:var(--primary);font:inherit;font-size:9px;font-weight:700;white-space:nowrap; }
+.assignCallerId:disabled { opacity:.5; }
+.verifiedPill { padding:4px 7px;border-radius:999px;color:#138452;background:#e9f8f0;font-size:8px;font-weight:800;text-transform:uppercase; }
+.removeCallerId { min-height:29px;padding:0 8px;border:1px solid var(--line);border-radius:5px;color:#536276;background:#fff;font:inherit;font-size:9px;font-weight:700; }
+.removeCallerId:disabled { opacity:.5; }
 .mappingPanel { padding:15px 0; border-top:1px solid var(--line); }
 .mappingPanel>header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; }
 .mappingPanel>header>div { display:grid; gap:3px; }
@@ -159,6 +190,10 @@
   .integrationGrid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
+  .callerIdRow { grid-template-columns:minmax(0,1fr) auto; }
+  .callerIdRow>label { grid-column:1/-1; }
+  .callerIdRowActions { grid-column:1/-1;justify-content:flex-start; }
+  .settingsDialog { padding:14px; }
   .shell { grid-template-columns: 1fr; gap: 12px; padding: 12px; }
   .sidebar { position: static; min-height: 0; padding: 13px; }
   .brand { margin-bottom: 14px; }

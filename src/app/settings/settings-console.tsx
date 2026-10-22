@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ChevronDown, CircleHelp, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 
 import styles from "@/app/settings/settings.module.css";
@@ -12,6 +12,9 @@ type ExternalField = { external_field_id: string; name: string; field_type: stri
 type Mapping = { internalField: string; externalFieldId: string; syncDirection: string };
 type SyncRun = { id: string; operation: string; state: string; imported_count: number; exported_count: number; skipped_count: number; failed_count: number; started_at: string; finished_at: string | null; details: Record<string, unknown> };
 type ConsoleData = { integrations: { ghl: ProviderSettings | null; crazytel: ProviderSettings | null }; hasCredentials: Record<string, boolean>; fields: ExternalField[]; mappings: Array<{ internal_field: string; external_field_id: string; sync_direction: string }>; syncRuns: SyncRun[] };
+type VerifiedCallerId = { id: string; number: string; nickname: string | null; domain: string | null };
+type CallerIdAgent = { id: string; name: string; email: string; callerId: string | null; trunkCallerId: string | null };
+type CallerIdData = { callerIds: VerifiedCallerId[]; agents: CallerIdAgent[] };
 
 const internalFields = [
   ["first_name", "First name"], ["last_name", "Last name"], ["phone", "Phone"], ["email", "Email"],
@@ -149,6 +152,31 @@ export default function SettingsConsole() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [testResults, setTestResults] = useState<Record<string, { state: string; message: string; checks?: IntegrationCheck[] }>>({});
+  const [activeDialog, setActiveDialog] = useState<"ghl-connect" | "ghl-fields" | "crazytel-connect" | null>(null);
+  const [callerIdData, setCallerIdData] = useState<CallerIdData>({ callerIds: [], agents: [] });
+  const [callerIdSelections, setCallerIdSelections] = useState<Record<string, string>>({});
+  const [callerIdsLoading, setCallerIdsLoading] = useState(false);
+  const [callerIdsError, setCallerIdsError] = useState("");
+
+  const refreshCallerIds = useCallback(async () => {
+    setCallerIdsLoading(true);
+    setCallerIdsError("");
+    try {
+      const response = await fetch("/api/admin/integrations/crazytel/caller-ids", { cache: "no-store" });
+      const result = await response.json() as CallerIdData & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Crazytel caller IDs could not be loaded.");
+      const nextData = { callerIds: result.callerIds ?? [], agents: result.agents ?? [] };
+      setCallerIdData(nextData);
+      setCallerIdSelections(Object.fromEntries(nextData.callerIds.map((item) => [
+        item.number,
+        nextData.agents.find((agent) => agent.callerId === item.number)?.id ?? "",
+      ])));
+    } catch (loadError) {
+      setCallerIdsError(loadError instanceof Error ? loadError.message : "Crazytel caller IDs could not be loaded.");
+    } finally {
+      setCallerIdsLoading(false);
+    }
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -196,6 +224,7 @@ export default function SettingsConsole() {
           callerId: String(crazytel.settings.callerId ?? ""),
         });
         setMappings(mappingDefaults(result.fields, result.mappings));
+        if (result.integrations.crazytel?.enabled && result.hasCredentials.crazytel) void refreshCallerIds();
         setLoading(false);
       })
       .catch((loadError: unknown) => {
@@ -204,7 +233,7 @@ export default function SettingsConsole() {
         setLoading(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [refreshCallerIds]);
 
   async function save(provider: Provider, enabled: boolean): Promise<boolean> {
     setBusy(`save-${provider}`);
@@ -281,10 +310,42 @@ export default function SettingsConsole() {
       const fieldsResult = await fieldsResponse.json() as { fields?: ExternalField[]; error?: string };
       if (!fieldsResponse.ok) throw new Error(fieldsResult.error ?? "GHL connected, but its contact fields could not be loaded.");
       await load();
-      setNotice(`Connected to GHL. ${fieldsResult.fields?.length ?? 0} contact fields are ready; review the suggested CRM mappings below.`);
+      setNotice(`Connected to GHL. ${fieldsResult.fields?.length ?? 0} contact fields are ready.`);
+      setActiveDialog(null);
+      setActiveDialog("ghl-fields");
     } catch (connectError) {
       await load();
       setError(connectError instanceof Error ? connectError.message : "GHL could not be connected.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function connectCrazytel() {
+    if (!await save("crazytel", true)) return;
+    await test("crazytel");
+    await refreshCallerIds();
+    setActiveDialog(null);
+  }
+
+  async function assignCallerId(profileId: string, callerId: string): Promise<boolean> {
+    setBusy(`caller-id-${profileId}`);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/integrations/crazytel/caller-ids", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId, callerId: callerId || null }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Caller-ID assignment could not be saved.");
+      setNotice("Caller-ID assignment saved. It will be used for calls after Crazytel enables Caller ID Passthrough.");
+      await refreshCallerIds();
+      return true;
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Caller-ID assignment could not be saved.");
+      return false;
     } finally {
       setBusy("");
     }
@@ -381,16 +442,33 @@ export default function SettingsConsole() {
       <div className={styles.integrationGrid}>
         <article className={styles.integrationCard}>
           <header className={styles.cardHeader}><div className={`${styles.serviceIcon} ${styles.ghl}`}>G</div><div className={styles.serviceTitle}><h2>GoHighLevel</h2><p>Optional contact import/export integration</p></div><span className={ghl.connectionStatus === "connected" ? styles.statusReady : styles.statusIncomplete}>{ghl.connectionStatus.replaceAll("_", " ")}</span></header>
-          <div className={styles.formFields}>
-            <label className={styles.toggleRow}><input type="checkbox" checked={ghl.enabled} onChange={(event) => void save("ghl", event.target.checked)} />Enable GHL for this company</label>
-            <label>Private integration key<input type="password" autoComplete="new-password" value={ghlKey} onChange={(event) => setGhlKey(event.target.value)} placeholder={data.hasCredentials.ghl ? "Saved securely; enter to replace" : "Paste private integration key"} /></label>
-            <label>Location ID<input value={ghlSettings.locationId} onChange={(event) => setGhlSettings((current) => ({ ...current, locationId: event.target.value }))} placeholder="GHL location ID" /></label>
-            <div className={styles.toggleGroup}><label><input type="checkbox" checked={ghlSettings.importEnabled} onChange={(event) => setGhlSettings((current) => ({ ...current, importEnabled: event.target.checked }))} />Allow manual import</label><label><input type="checkbox" checked={ghlSettings.exportEnabled} onChange={(event) => setGhlSettings((current) => ({ ...current, exportEnabled: event.target.checked }))} />Allow manual export</label></div>
-            <label className={styles.toggleRow}><input type="checkbox" checked={ghlSettings.exportUpdateExisting} onChange={(event) => setGhlSettings((current) => ({ ...current, exportUpdateExisting: event.target.checked }))} />Allow export to update linked GHL contacts</label>
-            <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void connectGhl()} disabled={busy !== "" || !ghlSettings.locationId.trim() || (!ghlKey.trim() && !data.hasCredentials.ghl)}><RefreshCw size={14} />{busy === "connect-ghl" ? "Connecting..." : "Connect & load fields"}</button><button type="button" className={styles.secondaryButton} onClick={() => void save("ghl", ghl.enabled)} disabled={busy !== ""}><Save size={14} /> Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void test("ghl")} disabled={busy !== ""}>{busy === "test-ghl" ? "Checking..." : "Test connection"}</button><button type="button" className={styles.secondaryButton} onClick={() => void disconnect("ghl")} disabled={busy !== ""}>Disconnect</button></div>
-            {lastGhlTest ? <p className={`${styles.inlineResult} ${lastGhlTest.state === "success" ? styles.success : lastGhlTest.state === "blocked" ? styles.blocked : styles.failure}`}>{lastGhlTest.message}</p> : null}
+          <div className={styles.providerSummary}>
+            <p>{ghl.connectionStatus === "connected" ? "GoHighLevel is connected for this company." : "Connect a GoHighLevel location to configure contact sync."}</p>
             {ghl.lastError ? <p className={`${styles.inlineResult} ${styles.failure}`}>{ghl.lastError}</p> : null}
+            {lastGhlTest ? <p className={`${styles.inlineResult} ${lastGhlTest.state === "success" ? styles.success : lastGhlTest.state === "blocked" ? styles.blocked : styles.failure}`}>{lastGhlTest.message}</p> : null}
+            <div className={styles.actionRow}>
+              {ghl.connectionStatus === "connected"
+                ? <button type="button" className={styles.testButton} onClick={() => setActiveDialog("ghl-fields")}><Save size={14} />Configure Fields</button>
+                : <button type="button" className={styles.testButton} onClick={() => setActiveDialog("ghl-connect")}><RefreshCw size={14} />Connect GoHighLevel</button>}
+              {ghl.enabled ? <button type="button" className={styles.secondaryButton} onClick={() => void disconnect("ghl")} disabled={busy !== ""}>Disconnect</button> : null}
+            </div>
           </div>
+          {activeDialog === "ghl-connect" ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveDialog(null); }}>
+            <section className={styles.settingsDialog} role="dialog" aria-modal="true" aria-labelledby="ghl-connect-title">
+              <header><div><span className={styles.serviceIcon + " " + styles.ghl}>G</span><div><h2 id="ghl-connect-title">Connect GoHighLevel</h2><p>Enter your private key and location details.</p></div></div><button type="button" onClick={() => setActiveDialog(null)} aria-label="Close">×</button></header>
+              <div className={styles.formFields}>
+                <label>Private integration key<input type="password" autoComplete="new-password" value={ghlKey} onChange={(event) => setGhlKey(event.target.value)} placeholder={data.hasCredentials.ghl ? "Saved securely; enter to replace" : "Paste private integration key"} /></label>
+                <label>Location ID<input value={ghlSettings.locationId} onChange={(event) => setGhlSettings((current) => ({ ...current, locationId: event.target.value }))} placeholder="GHL location ID" /></label>
+                <div className={styles.toggleGroup}><label><input type="checkbox" checked={ghlSettings.importEnabled} onChange={(event) => setGhlSettings((current) => ({ ...current, importEnabled: event.target.checked }))} />Allow manual import</label><label><input type="checkbox" checked={ghlSettings.exportEnabled} onChange={(event) => setGhlSettings((current) => ({ ...current, exportEnabled: event.target.checked }))} />Allow manual export</label></div>
+                <label className={styles.toggleRow}><input type="checkbox" checked={ghlSettings.exportUpdateExisting} onChange={(event) => setGhlSettings((current) => ({ ...current, exportUpdateExisting: event.target.checked }))} />Allow export to update linked GHL contacts</label>
+                <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void connectGhl()} disabled={busy !== "" || !ghlSettings.locationId.trim() || (!ghlKey.trim() && !data.hasCredentials.ghl)}><RefreshCw size={14} />{busy === "connect-ghl" ? "Connecting..." : "Connect GoHighLevel"}</button><button type="button" className={styles.secondaryButton} onClick={() => void save("ghl", true)} disabled={busy !== ""}><Save size={14} />Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void test("ghl")} disabled={busy !== ""}>{busy === "test-ghl" ? "Checking..." : "Test connection"}</button></div>
+              </div>
+            </section>
+          </div> : null}
+          {activeDialog === "ghl-fields" ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveDialog(null); }}>
+          <section className={`${styles.settingsDialog} ${styles.settingsDialogWide}`} role="dialog" aria-modal="true" aria-labelledby="ghl-fields-title">
+          <header><div><span className={styles.serviceIcon + " " + styles.ghl}>G</span><div><h2 id="ghl-fields-title">Configure GoHighLevel fields</h2><p>Map fields and manage manual synchronization.</p></div></div><button type="button" onClick={() => setActiveDialog(null)} aria-label="Close">×</button></header>
+          <div className={styles.settingsDialogBody}>
           <section className={styles.mappingPanel}>
             <header>
               <div><strong>Connect your CRM fields to GoHighLevel</strong><small>Choose one CRM field on the left and the matching GHL field on the right. GHL fields load after connecting.</small></div>
@@ -436,25 +514,66 @@ export default function SettingsConsole() {
           </section>
           <div className={styles.syncControls}><div><strong>Manual synchronization</strong><small>Automatic and bidirectional sync remain off by default.</small></div><div className={styles.actionRow}><button type="button" className={styles.secondaryButton} disabled={!ghlSettings.importEnabled || busy !== ""} onClick={() => void sync("import")}>{busy === "import" ? "Importing..." : "Import from GHL"}</button><button type="button" className={styles.secondaryButton} disabled={!ghlSettings.exportEnabled || busy !== ""} onClick={() => void sync("export")}>{busy === "export" ? "Exporting..." : "Export to GHL"}</button></div></div>
           <div className={styles.syncHistory}><strong>Recent synchronization runs</strong>{data.syncRuns.length ? data.syncRuns.map((run) => <article key={run.id}><div><b>{run.operation.replaceAll("_", " ")}</b><span className={styles[run.state] ?? ""}>{run.state}</span></div><small>{new Date(run.started_at).toLocaleString()} · {run.imported_count} imported · {run.exported_count} exported · {run.skipped_count} skipped · {run.failed_count} failed</small></article>) : <p>No synchronization runs recorded.</p>}</div>
+          </div>
+          </section>
+          </div> : null}
         </article>
 
         <article className={styles.integrationCard}>
           <header className={styles.cardHeader}><div className={`${styles.serviceIcon} ${styles.crazytel}`}>C</div><div className={styles.serviceTitle}><h2>Crazytel</h2><p>Optional Hybrid SIP WebRTC calling provider</p></div><span className={crazytel.connectionStatus === "connected" ? styles.statusReady : styles.statusIncomplete}>{crazytel.connectionStatus === "connected" ? "API key valid" : crazytel.connectionStatus.replaceAll("_", " ")}</span></header>
-          <div className={styles.formFields}>
-            <label className={styles.toggleRow}><input type="checkbox" checked={crazytel.enabled} onChange={(event) => void save("crazytel", event.target.checked)} />Enable Crazytel for this company</label>
-            <label>Crazytel API key<input type="password" autoComplete="new-password" value={crazytelCredentials.apiKey} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, apiKey: event.target.value }))} placeholder={data.hasCredentials.crazytel ? "Saved securely; enter to replace" : "API key"} /></label>
-            <label>API base URL<input value={crazytelSettings.apiBaseUrl} onChange={(event) => setCrazytelSettings((current) => ({ ...current, apiBaseUrl: event.target.value }))} /></label>
-            <label>Hybrid WebRTC SIP URI<input value={crazytelCredentials.webrtcSipUri} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, webrtcSipUri: event.target.value }))} placeholder="sip:user@hybrid.sip.crazytel.net.au" /></label>
-            <label>Dedicated WebRTC password<input type="password" autoComplete="new-password" value={crazytelCredentials.webrtcPassword} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, webrtcPassword: event.target.value }))} placeholder={data.hasCredentials.crazytel ? "Saved securely; enter to replace" : "WebRTC password"} /></label>
-            <label>WebSocket signaling URL<input value={crazytelSettings.websocketUrl} onChange={(event) => setCrazytelSettings((current) => ({ ...current, websocketUrl: event.target.value }))} /></label>
-            <label>Outbound SIP URI template<input value={crazytelSettings.outboundUriTemplate} onChange={(event) => setCrazytelSettings((current) => ({ ...current, outboundUriTemplate: event.target.value }))} placeholder="Use {number}; confirm with Crazytel" /></label>
-            <label>Verified caller ID<input value={crazytelSettings.callerId} onChange={(event) => setCrazytelSettings((current) => ({ ...current, callerId: event.target.value }))} /></label>
-            <div className={styles.formPair}><label>TURN username<input value={crazytelCredentials.turnUsername} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, turnUsername: event.target.value }))} /></label><label>TURN password<input type="password" autoComplete="new-password" value={crazytelCredentials.turnPassword} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, turnPassword: event.target.value }))} /></label></div>
-            <p className={styles.warningText}><CircleHelp size={13} /> API key test checks account balance only—not SIP registration, calls or recordings. These SIP fields are company-wide; agents currently share this configured trunk identity.</p>
-            <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void save("crazytel", crazytel.enabled)} disabled={busy !== ""}><Save size={14} /> Save settings</button><button type="button" className={styles.secondaryButton} onClick={() => void verifyCrazytel()} disabled={busy !== ""}>{busy.startsWith("test-crazytel") ? "Checking..." : "Verify API & calling setup"}</button><button type="button" className={styles.secondaryButton} onClick={() => void disconnect("crazytel")} disabled={busy !== ""}>Disconnect</button></div>
-            {lastCrazytelTest ? <div className={`${styles.inlineResult} ${lastCrazytelTest.state === "success" ? styles.success : styles.failure}`}><p>{lastCrazytelTest.message}</p>{lastCrazytelTest.checks?.map((check) => <p key={check.name}>{check.state === "success" ? "✓" : "×"} {check.name}: {check.message}</p>)}</div> : null}
+          <div className={styles.providerSummary}>
+            <p>{crazytel.connectionStatus === "connected" ? "Your current Hybrid SIP and WebRTC connection is saved." : "Connect Crazytel to load verified caller IDs for this account."}</p>
             {crazytel.lastError ? <p className={`${styles.inlineResult} ${styles.failure}`}>{crazytel.lastError}</p> : null}
+            {lastCrazytelTest ? <div className={`${styles.inlineResult} ${lastCrazytelTest.state === "success" ? styles.success : styles.failure}`}><p>{lastCrazytelTest.message}</p>{lastCrazytelTest.checks?.map((check) => <p key={check.name}>{check.state === "success" ? "✓" : "×"} {check.name}: {check.message}</p>)}</div> : null}
+            <div className={styles.actionRow}>
+              <button type="button" className={styles.secondaryButton} onClick={() => setActiveDialog("crazytel-connect")}><Save size={14} />{data.hasCredentials.crazytel ? "Connection settings" : "Connect Crazytel"}</button>
+              {data.hasCredentials.crazytel ? <button type="button" className={styles.secondaryButton} onClick={() => void verifyCrazytel()} disabled={busy !== ""}><RefreshCw size={14} />{busy === "test-crazytel" ? "Checking..." : "Verify connection"}</button> : null}
+              {crazytel.enabled ? <button type="button" className={styles.secondaryButton} onClick={() => void disconnect("crazytel")} disabled={busy !== ""}>Disconnect</button> : null}
+            </div>
           </div>
+          {crazytel.enabled && data.hasCredentials.crazytel ? <>
+            <div className={styles.callerIdHeader}><div><strong>Verified caller IDs</strong><small>{callerIdData.callerIds.length} available · {callerIdData.agents.filter((agent) => agent.callerId).length} assigned</small></div><button type="button" className={styles.secondaryButton} onClick={() => void refreshCallerIds()} disabled={callerIdsLoading}>{callerIdsLoading ? "Refreshing..." : "Refresh numbers"}</button></div>
+            {callerIdsError ? <p className={`${styles.inlineResult} ${styles.failure}`} role="alert">{callerIdsError}</p> : null}
+            <p className={styles.callerIdNote}><CircleHelp size={14} /> Add and verify new numbers in Crazytel MyAccount, then refresh here. Assignments are saved without changing your existing SIP/WebRTC connection. They become active for calls only after Crazytel confirms Caller ID Passthrough is enabled.</p>
+                {callerIdsLoading && !callerIdData.callerIds.length ? <p className={styles.mappingHint}>Loading verified caller IDs...</p> : callerIdData.callerIds.length ? <div className={styles.callerIdList}>{callerIdData.callerIds.map((item) => {
+              const assigned = callerIdData.agents.find((agent) => agent.callerId === item.number);
+              const existingTrunkAgent = callerIdData.agents.find((agent) => agent.trunkCallerId === item.number);
+                  const selectedAgentId = callerIdSelections[item.number] ?? assigned?.id ?? "";
+                  const reassign = async () => {
+                    if (assigned && selectedAgentId !== assigned.id && !await assignCallerId(assigned.id, "")) return;
+                    if (selectedAgentId) await assignCallerId(selectedAgentId, item.number);
+                  };
+                  return <div className={styles.callerIdRow} key={item.id}>
+                    <div><strong>{item.nickname || item.number}</strong><small>{item.nickname ? item.number : item.domain ?? "Verified on Crazytel account"}{existingTrunkAgent ? ` · Current trunk for ${existingTrunkAgent.name}` : ""}</small></div>
+                    <span className={styles.verifiedPill}>Verified</span>
+                    <label>Assigned agent<select value={selectedAgentId} onChange={(event) => setCallerIdSelections((current) => ({ ...current, [item.number]: event.target.value }))} disabled={busy !== ""}>
+                      <option value="">Not assigned</option>
+                      {callerIdData.agents.map((agent) => <option key={agent.id} value={agent.id} disabled={Boolean(agent.callerId && agent.callerId !== item.number)}>{agent.name}</option>)}
+                    </select></label>
+                    <div className={styles.callerIdRowActions}>
+                      {selectedAgentId && selectedAgentId !== assigned?.id ? <button type="button" className={styles.assignCallerId} onClick={() => void reassign()} disabled={busy !== ""}>{busy ? "Saving..." : assigned ? "Change agent" : "Assign to agent"}</button> : null}
+                      {assigned ? <button type="button" className={styles.removeCallerId} onClick={() => void assignCallerId(assigned.id, "")} disabled={busy !== ""}>Remove</button> : null}
+                    </div>
+                  </div>;
+            })}</div> : <p className={styles.mappingHint}>No verified caller IDs were returned for this Crazytel account. Verify a number in MyAccount, then refresh.</p>}
+          </> : null}
+          {activeDialog === "crazytel-connect" ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveDialog(null); }}>
+            <section className={styles.settingsDialog} role="dialog" aria-modal="true" aria-labelledby="crazytel-connect-title">
+              <header><div><span className={styles.serviceIcon + " " + styles.crazytel}>C</span><div><h2 id="crazytel-connect-title">Crazytel connection settings</h2><p>Existing values are retained unless you explicitly replace and save them.</p></div></div><button type="button" onClick={() => setActiveDialog(null)} aria-label="Close">×</button></header>
+              <div className={styles.formFields}>
+                <label>Crazytel API key<input type="password" autoComplete="new-password" value={crazytelCredentials.apiKey} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, apiKey: event.target.value }))} placeholder={data.hasCredentials.crazytel ? "Saved securely; leave blank to keep existing" : "API key"} /></label>
+                <label>API base URL<input value={crazytelSettings.apiBaseUrl} onChange={(event) => setCrazytelSettings((current) => ({ ...current, apiBaseUrl: event.target.value }))} /></label>
+                <label>Hybrid WebRTC SIP URI<input value={crazytelCredentials.webrtcSipUri} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, webrtcSipUri: event.target.value }))} placeholder="sip:user@hybrid.sip.crazytel.net.au" /></label>
+                <label>Dedicated WebRTC password<input type="password" autoComplete="new-password" value={crazytelCredentials.webrtcPassword} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, webrtcPassword: event.target.value }))} placeholder={data.hasCredentials.crazytel ? "Saved securely; leave blank to keep existing" : "WebRTC password"} /></label>
+                <label>WebSocket signaling URL<input value={crazytelSettings.websocketUrl} onChange={(event) => setCrazytelSettings((current) => ({ ...current, websocketUrl: event.target.value }))} /></label>
+                <label>Outbound SIP URI template<input value={crazytelSettings.outboundUriTemplate} onChange={(event) => setCrazytelSettings((current) => ({ ...current, outboundUriTemplate: event.target.value }))} placeholder="Use {number}; confirm with Crazytel" /></label>
+                <label>Default trunk caller ID<input value={crazytelSettings.callerId} onChange={(event) => setCrazytelSettings((current) => ({ ...current, callerId: event.target.value }))} /></label>
+                <div className={styles.formPair}><label>TURN username<input value={crazytelCredentials.turnUsername} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, turnUsername: event.target.value }))} /></label><label>TURN password<input type="password" autoComplete="new-password" value={crazytelCredentials.turnPassword} onChange={(event) => setCrazytelCredentials((current) => ({ ...current, turnPassword: event.target.value }))} /></label></div>
+                <p className={styles.warningText}><CircleHelp size={13} /> Saving connection settings updates only values you enter. Caller-ID assignments do not change this SIP/WebRTC setup.</p>
+                <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void connectCrazytel()} disabled={busy !== ""}>{busy === "save-crazytel" || busy === "test-crazytel" ? "Connecting..." : data.hasCredentials.crazytel ? "Save & verify" : "Connect Crazytel"}</button><button type="button" className={styles.secondaryButton} onClick={() => void save("crazytel", true)} disabled={busy !== ""}><Save size={14} />Save without testing</button></div>
+              </div>
+            </section>
+          </div> : null}
         </article>
       </div>
     </>}
