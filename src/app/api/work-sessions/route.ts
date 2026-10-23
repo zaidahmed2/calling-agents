@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 const sessionFields = "id, state, started_at, ended_at, state_changed_at, active_seconds, idle_seconds, reason";
 
-function timerRpcErrorMessage(code: string | undefined): string {
+function timerRpcErrorMessage(code: string | undefined, message?: string): string {
   if (code === "PGRST202" || code === "PGRST204") {
     return "The database API has not loaded the timer function yet. Run `npx supabase db push` against the same project this app uses, then reload.";
   }
@@ -18,6 +18,12 @@ function timerRpcErrorMessage(code: string | undefined): string {
     return "The database denied this timer action. Check the timer function permissions for signed-in users.";
   }
   if (code === "P0001") {
+    if (/company_membership_mismatch/i.test(message ?? "")) {
+      return "Your work session could not be linked to your company. Ask an administrator to check your active company membership.";
+    }
+    if (/active_company_agent_required/i.test(message ?? "")) {
+      return "Your account is not linked to an active company as an agent. Ask an administrator to check your company membership.";
+    }
     return "The timer action was rejected because the session state changed. Reload the page and try again.";
   }
   return `The database rejected this timer action (code ${code ?? "unknown"}). Check the development server log for the RPC error.`;
@@ -58,7 +64,22 @@ export async function POST(request: Request) {
     const { data, error } = await supabase.rpc("work_session_action", { p_action: action });
     if (error) {
       console.error("work_session_action RPC failed", { code: error.code, message: error.message });
-      return NextResponse.json({ error: timerRpcErrorMessage(error.code), code: error.code }, { status: 503 });
+      if (action === "start" && error.code === "P0001" && /session_already_open/i.test(error.message)) {
+        const { data: existingSession, error: sessionError } = await supabase.from("work_sessions")
+          .select(sessionFields)
+          .eq("agent_id", session.id)
+          .in("state", ["active", "paused"])
+          .order("started_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!sessionError && existingSession) {
+          return NextResponse.json({ session: existingSession, alreadyOpen: true }, { headers: { "Cache-Control": "no-store" } });
+        }
+        if (sessionError) {
+          console.error("Could not resync an already-open work session", { code: sessionError.code, message: sessionError.message });
+        }
+      }
+      return NextResponse.json({ error: timerRpcErrorMessage(error.code, error.message), code: error.code }, { status: 503 });
     }
     const returnedState = data && typeof data === "object" ? (data as Record<string, unknown>).state : null;
     return NextResponse.json({ session: returnedState === "ended" || returnedState === "none" ? null : data });
