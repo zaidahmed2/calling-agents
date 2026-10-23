@@ -9,7 +9,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 export const dynamic = "force-dynamic";
 
 type VerifiedCallerId = { id: string; number: string; nickname: string | null; domain: string | null };
-type CrazytelTrunk = { username: string; callerIdNumber: string | null };
+type CrazytelTrunk = { id: string; username: string; enabled: boolean; callerIdNumber: string | null; description: string | null; manual?: boolean };
 
 async function fetchVerifiedCallerIds(baseUrl: string, apiKey: string): Promise<VerifiedCallerId[]> {
   const response = await fetch(new URL("/api/v1/account/verified-cli/", getCrazytelApiBaseUrl(baseUrl)), {
@@ -45,10 +45,13 @@ async function fetchTrunkCallerIds(baseUrl: string, apiKey: string): Promise<Cra
   return payload.flatMap((item): CrazytelTrunk[] => {
     if (!item || typeof item !== "object") return [];
     const row = item as Record<string, unknown>;
-    if (typeof row.username !== "string") return [];
+    if (typeof row.id !== "string" || typeof row.username !== "string" || typeof row.enabled !== "boolean") return [];
     return [{
+      id: row.id,
       username: row.username,
+      enabled: row.enabled,
       callerIdNumber: typeof row.caller_id_number === "string" ? row.caller_id_number : null,
+      description: typeof row.description === "string" ? row.description : null,
     }];
   });
 }
@@ -80,21 +83,36 @@ export async function GET() {
       fetchTrunkCallerIds(baseUrl, credentials.apiKey),
       listCompanyAgentProfiles(auth.session.companyId),
       createSupabaseServiceClient().from("company_memberships")
-        .select("profile_id, crazytel_caller_id, crazytel_trunk_username")
+        .select("profile_id, crazytel_caller_id, crazytel_trunk_username, crazytel_trunk_id, crazytel_outbound_uri_template")
         .eq("company_id", auth.session.companyId)
         .eq("role", "agent"),
     ]);
     if (assignments.error) {
-      if (assignments.error.code === "42703") throw new Error("Apply migration 20261022_000022_agent_crazytel_caller_ids.sql and try again.");
+      if (assignments.error.code === "42703") throw new Error("Apply migrations 20261022_000022_agent_crazytel_caller_ids.sql and 20261023_000023_agent_crazytel_outbound_uri.sql and try again.");
       throw new Error("Crazytel caller-ID assignments could not be loaded.");
     }
-    const assignedIds = new Map((assignments.data ?? []).map((row) => [row.profile_id, {
+    const assignmentRows = assignments.data ?? [];
+    const assignedIds = new Map(assignmentRows.map((row) => [row.profile_id, {
       callerId: row.crazytel_caller_id,
       trunkUsername: row.crazytel_trunk_username,
+      trunkId: row.crazytel_trunk_id,
+      outboundUriTemplate: row.crazytel_outbound_uri_template,
     }]));
-    const trunkCallers = new Map(trunks.map((trunk) => [trunk.username, trunk.callerIdNumber]));
+    const providerTrunkIds = new Set(trunks.map((trunk) => trunk.id));
+    const manualTrunks = assignmentRows.flatMap((row): CrazytelTrunk[] => {
+      if (!row.crazytel_trunk_id || !row.crazytel_trunk_username || providerTrunkIds.has(row.crazytel_trunk_id)) return [];
+      return [{
+        id: row.crazytel_trunk_id,
+        username: row.crazytel_trunk_username,
+        enabled: true,
+        callerIdNumber: row.crazytel_caller_id,
+        description: "Manually added Hybrid trunk",
+        manual: true,
+      }];
+    });
     return NextResponse.json({
       callerIds,
+      trunks: [...trunks, ...manualTrunks],
       agents: agents.map((agent) => {
         const assignment = assignedIds.get(agent.id);
         return {
@@ -102,7 +120,10 @@ export async function GET() {
           name: agent.name,
           email: agent.email,
           callerId: assignment?.callerId ?? null,
-          trunkCallerId: assignment?.trunkUsername ? trunkCallers.get(assignment.trunkUsername) ?? null : null,
+          trunkId: assignment?.trunkId ?? null,
+          trunkUsername: assignment?.trunkUsername ?? null,
+          outboundUriTemplate: assignment?.outboundUriTemplate ?? null,
+          trunkCallerId: assignment?.trunkUsername ? trunks.find((trunk) => trunk.username === assignment.trunkUsername)?.callerIdNumber ?? null : null,
         };
       }),
     }, { headers: { "Cache-Control": "no-store" } });
@@ -112,88 +133,8 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
-  const auth = await requireAdmin();
-  if ("response" in auth) return auth.response;
-  let payload: unknown;
-  try { payload = await request.json(); } catch {
-    return NextResponse.json({ error: "Invalid caller-ID assignment." }, { status: 400 });
-  }
-  const body = payload && typeof payload === "object" && !Array.isArray(payload)
-    ? payload as Record<string, unknown>
-    : {};
-  const profileId = typeof body.profileId === "string" ? body.profileId : "";
-  const callerId = body.callerId === null
-    ? null
-    : typeof body.callerId === "string"
-      ? body.callerId.trim() || null
-      : undefined;
-  if (!profileId || callerId === undefined || (callerId !== null && callerId.length > 32)) {
-    return NextResponse.json({ error: "Choose an agent and a verified caller ID." }, { status: 400 });
-  }
-
-  try {
-    const service = createSupabaseServiceClient();
-    const { data: membership, error: membershipError } = await service.from("company_memberships")
-      .select("profile_id")
-      .eq("profile_id", profileId)
-      .eq("company_id", auth.session.companyId)
-      .eq("role", "agent")
-      .maybeSingle();
-    if (membershipError || !membership) {
-      return NextResponse.json({ error: "This agent does not belong to your company." }, { status: 404 });
-    }
-
-    if (callerId) {
-      const { config, credentials } = await getCompanyIntegration(auth.session.companyId, "crazytel");
-      if (!config?.enabled || !credentials.apiKey) {
-        return NextResponse.json({ error: "Enable Crazytel and save its API key in Settings first." }, { status: 409 });
-      }
-      const baseUrl = typeof config.settings.apiBaseUrl === "string" ? config.settings.apiBaseUrl : "https://api.crazytel.io";
-      const verifiedCallerIds = await fetchVerifiedCallerIds(baseUrl, credentials.apiKey);
-      if (!verifiedCallerIds.some((item) => item.number === callerId)) {
-        return NextResponse.json({ error: "Choose a caller ID verified and active on this Crazytel account." }, { status: 400 });
-      }
-      const [trunks, trunkAssignments] = await Promise.all([
-        fetchTrunkCallerIds(baseUrl, credentials.apiKey),
-        service.from("company_memberships")
-          .select("profile_id, crazytel_trunk_username")
-          .eq("company_id", auth.session.companyId)
-          .eq("role", "agent"),
-      ]);
-      if (trunkAssignments.error) throw new Error("Existing trunk caller-ID assignments could not be checked.");
-      const trunkCallerIds = new Map(trunks.map((trunk) => [trunk.username, trunk.callerIdNumber]));
-      const existingTrunkAgent = (trunkAssignments.data ?? []).find((row) =>
-        row.profile_id !== profileId
-        && row.crazytel_trunk_username
-        && trunkCallerIds.get(row.crazytel_trunk_username) === callerId,
-      );
-      if (existingTrunkAgent) {
-        return NextResponse.json({ error: "That number is already configured as another agent's current trunk caller ID." }, { status: 409 });
-      }
-      const { data: currentAssignment, error: assignmentError } = await service.from("company_memberships")
-        .select("profile_id")
-        .eq("company_id", auth.session.companyId)
-        .eq("role", "agent")
-        .eq("crazytel_caller_id", callerId)
-        .maybeSingle();
-      if (assignmentError) throw new Error("Caller-ID assignment could not be checked.");
-      if (currentAssignment && currentAssignment.profile_id !== profileId) {
-        return NextResponse.json({ error: "That caller ID is already assigned to another agent." }, { status: 409 });
-      }
-    }
-
-    const { error } = await service.from("company_memberships").update({ crazytel_caller_id: callerId })
-      .eq("profile_id", profileId)
-      .eq("company_id", auth.session.companyId)
-      .eq("role", "agent");
-    if (error) {
-      if (error.code === "23505") return NextResponse.json({ error: "That caller ID is already assigned to another agent." }, { status: 409 });
-      throw new Error("Caller-ID assignment could not be saved.");
-    }
-    return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Caller-ID assignment could not be saved.";
-    return NextResponse.json({ error: message }, { status: 503 });
-  }
+export async function PATCH() {
+  return NextResponse.json({
+    error: "Assign a verified caller ID by assigning its configured Crazytel trunk to the agent.",
+  }, { status: 405 });
 }

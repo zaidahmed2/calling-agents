@@ -6,9 +6,8 @@ import { Registerer, UserAgent } from "sip.js";
 
 import styles from "@/app/agents/[id]/agent-detail.module.css";
 
-type Trunk = { id: string; username: string; enabled: boolean; caller_id_number: string | null; description: string | null };
-type VerifiedCallerId = { id: string; number: string; nickname: string | null; domain: string | null };
-type Assignment = { trunks?: Trunk[]; selectedTrunkId?: string | null; selectedUsername?: string | null; selectedCallerId?: string | null; passwordSaved?: boolean; error?: string };
+type Trunk = { id: string; username: string; enabled: boolean; caller_id_number: string | null; description: string | null; assignedToOtherAgent?: boolean; manual?: boolean };
+type Assignment = { trunks?: Trunk[]; selectedTrunkId?: string | null; selectedUsername?: string | null; passwordSaved?: boolean; error?: string };
 
 export default function AgentCrazytelAssignment({ agentId }: { agentId: string }) {
   const [trunks, setTrunks] = useState<Trunk[]>([]);
@@ -16,11 +15,6 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passwordSaved, setPasswordSaved] = useState(false);
-  const [callerIds, setCallerIds] = useState<VerifiedCallerId[]>([]);
-  const [callerId, setCallerId] = useState("");
-  const [callerIdsLoading, setCallerIdsLoading] = useState(true);
-  const [callerIdError, setCallerIdError] = useState("");
-  const [savingCallerId, setSavingCallerId] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -38,54 +32,17 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
       })
       .then((result) => {
         if (!active) return;
-        const available = result.trunks ?? [];
-        setTrunks(available);
+        setTrunks(result.trunks ?? []);
         setTrunkId(result.selectedTrunkId ?? "");
         setUsername(result.selectedUsername ?? "");
         setPasswordSaved(Boolean(result.passwordSaved));
-        setCallerId(result.selectedCallerId ?? "");
       })
       .catch((loadError: unknown) => {
         if (active) setError(loadError instanceof Error ? loadError.message : "Crazytel settings could not be loaded.");
       })
       .finally(() => { if (active) setLoading(false); });
-    void fetch("/api/admin/integrations/crazytel/caller-ids", { cache: "no-store" })
-      .then(async (response) => {
-        const result = await response.json() as { callerIds?: VerifiedCallerId[]; agents?: Array<{ id: string; callerId: string | null }>; error?: string };
-        if (!response.ok) throw new Error(result.error ?? "Verified caller IDs could not be loaded.");
-        return result;
-      })
-      .then((result) => {
-        if (!active) return;
-        setCallerIds(result.callerIds ?? []);
-        setCallerId(result.agents?.find((agent) => agent.id === agentId)?.callerId ?? "");
-      })
-      .catch((loadError: unknown) => {
-        if (active) setCallerIdError(loadError instanceof Error ? loadError.message : "Verified caller IDs could not be loaded.");
-      })
-      .finally(() => { if (active) setCallerIdsLoading(false); });
     return () => { active = false; };
   }, [agentId]);
-
-  async function saveCallerId() {
-    setSavingCallerId(true);
-    setError("");
-    setNotice("");
-    try {
-      const response = await fetch("/api/admin/integrations/crazytel/caller-ids", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId: agentId, callerId: callerId || null }),
-      });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Caller-ID assignment could not be saved.");
-      setNotice(callerId ? "Caller ID assigned. It will be used for calls after Crazytel enables Caller ID Passthrough." : "Caller-ID assignment removed.");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Caller-ID assignment could not be saved.");
-    } finally {
-      setSavingCallerId(false);
-    }
-  }
 
   async function save() {
     setSaving(true);
@@ -95,7 +52,7 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
       const response = await fetch(`/api/admin/agents/${encodeURIComponent(agentId)}/crazytel`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trunkId, username, webrtcPassword: password }),
+        body: JSON.stringify({ trunkId, username, webrtcPassword: password, manual: selected?.manual === true, callerId: selected?.caller_id_number }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Agent trunk assignment could not be saved.");
@@ -109,6 +66,8 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
       setSaving(false);
     }
   }
+
+  const selected = trunks.find((trunk) => trunk.id === trunkId);
 
   async function testRegistration() {
     if (!selected || !password) return;
@@ -150,8 +109,6 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
     }
   }
 
-  const selected = trunks.find((trunk) => trunk.id === trunkId);
-
   return <section className={styles.visibilityPanel}>
     <header><span className={styles.visibilityIcon}><ShieldCheck size={16} /></span><div><span className={styles.sectionEyebrow}>CRAZyTEL WEBRTC</span><h2>Agent calling trunk</h2><p>Assign an enabled SIP trunk and its dedicated WebRTC password.</p></div></header>
     {loading ? <p className={styles.visibilityMessage}>Loading Crazytel trunks...</p> : <>
@@ -164,7 +121,7 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
             setRegistrationVerified(false);
           }}>
             <option value="">Select an enabled trunk</option>
-            {trunks.map((trunk) => <option key={trunk.id} value={trunk.id}>{trunk.username}{trunk.caller_id_number ? ` · ${trunk.caller_id_number}` : ""}{trunk.description ? ` · ${trunk.description}` : ""}</option>)}
+            {trunks.map((trunk) => <option key={trunk.id} value={trunk.id} disabled={trunk.assignedToOtherAgent}>{trunk.username}{trunk.caller_id_number ? ` · ${trunk.caller_id_number}` : ""}{trunk.description ? ` · ${trunk.description}` : ""}{trunk.assignedToOtherAgent ? " · assigned to another agent" : ""}</option>)}
           </select>
         </label>
         <label className={styles.callingAssignmentField}>Dedicated WebRTC password
@@ -172,19 +129,8 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
         </label>
       </div>
       {selected ? <p className={styles.visibilityMessage}>SIP identity: <code>sip:{selected.username}@hybrid.sip.crazytel.net.au</code></p> : null}
-      <div className={styles.callingAssignmentField}>
-        <label htmlFor="crazytel-caller-id">Verified caller ID</label>
-        <select id="crazytel-caller-id" value={callerId} onChange={(event) => setCallerId(event.target.value)} disabled={callerIdsLoading || Boolean(callerIdError)}>
-          <option value="">Use current trunk caller ID</option>
-          {callerIds.map((item) => <option key={item.id} value={item.number}>{item.nickname ? `${item.nickname} · ` : ""}${item.number}</option>)}
-        </select>
-        {callerIdsLoading ? <small className={styles.visibilityMessage}>Loading verified caller IDs...</small> : null}
-        {callerIdError ? <p className={styles.visibilityError} role="alert">{callerIdError}</p> : null}
-        <small className={styles.visibilityMessage}>Saved as this agent&apos;s caller-ID assignment. Calling stays on the current trunk setup; the selected ID takes effect only after Crazytel enables Caller ID Passthrough.</small>
-        <div className={styles.callingAssignmentActions}>
-          <button type="button" onClick={() => void saveCallerId()} disabled={loading || callerIdsLoading || Boolean(callerIdError) || savingCallerId || saving || testing}>{savingCallerId ? "Saving caller ID..." : "Save caller ID"}</button>
-        </div>
-      </div>
+      {selected?.caller_id_number ? <p className={styles.visibilityMessage}>This trunk presents its Crazytel-configured caller ID: <strong>{selected.caller_id_number}</strong>.</p> : null}
+      <p className={styles.visibilityMessage}>The app automatically formats contact numbers for Crazytel PSTN dialing. The registration test checks WebRTC login only; it does not place a call.</p>
     </>}
     {error ? <p className={styles.visibilityError} role="alert">{error}</p> : null}
     {notice ? <p className={styles.visibilityNotice} role="status">{notice}</p> : null}

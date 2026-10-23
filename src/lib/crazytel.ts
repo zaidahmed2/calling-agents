@@ -10,11 +10,12 @@ export type CrazytelWebRtcConfig = {
   turnUrls: string[];
   turnUsername?: string;
   turnPassword?: string;
+  outboundCallerId?: string;
 };
 
-import { buildCrazytelOutboundTarget } from "@/lib/crazytel-utils";
+import { buildCrazytelCallerIdHeaders, buildCrazytelOutboundTarget, CRAZYTEL_OUTBOUND_URI_TEMPLATE } from "@/lib/crazytel-utils";
 
-export { buildCrazytelOutboundTarget } from "@/lib/crazytel-utils";
+export { buildCrazytelCallerIdHeaders, buildCrazytelOutboundTarget, CRAZYTEL_OUTBOUND_URI_TEMPLATE } from "@/lib/crazytel-utils";
 
 const isPlaceholder = (value: string) => /your_|change_me|placeholder|example|mock/i.test(value.trim());
 
@@ -25,10 +26,7 @@ export function getCrazytelWebRtcConfig(destinationPhone: string): { ok: true; c
   if (!env.crazytelWebrtcWssUrl.startsWith("wss://")) {
     return { ok: false, reason: "Crazytel WebRTC must use a secure WSS signaling URL." };
   }
-  if (isPlaceholder(env.crazytelOutboundUriTemplate)) {
-    return { ok: false, reason: "Set CRAZYTEL_OUTBOUND_URI_TEMPLATE to the outbound SIP destination format confirmed for your Hybrid trunk." };
-  }
-  const targetUri = buildCrazytelOutboundTarget(env.crazytelOutboundUriTemplate, destinationPhone);
+  const targetUri = buildCrazytelOutboundTarget(CRAZYTEL_OUTBOUND_URI_TEMPLATE, destinationPhone);
   if (!targetUri) return { ok: false, reason: "The Crazytel outbound SIP URI template or contact phone number is invalid." };
 
   const hasTurnCredentials = Boolean(env.crazytelTurnUsername.trim() && env.crazytelTurnPassword.trim());
@@ -59,25 +57,30 @@ export async function getCompanyCrazytelWebRtcConfig(companyId: string, agentId:
   const settings = config?.settings ?? {};
   if (!config?.enabled) return { ok: false, reason: "Calling is not enabled for this company. Ask an administrator to configure a provider." };
   let assignedUsername: string | null = null;
+  let assignedCallerId: string | null = null;
   try {
     const { data: membership, error } = await createSupabaseServiceClient().from("company_memberships")
-      .select("crazytel_trunk_username")
+      .select("crazytel_trunk_username, crazytel_caller_id")
       .eq("company_id", companyId).eq("profile_id", agentId).eq("role", "agent")
       .maybeSingle();
     if (error) throw error;
     assignedUsername = typeof membership?.crazytel_trunk_username === "string" ? membership.crazytel_trunk_username : null;
+    assignedCallerId = typeof membership?.crazytel_caller_id === "string" ? membership.crazytel_caller_id : null;
   } catch {
-    return { ok: false, reason: "Agent Crazytel trunk assignment could not be loaded. Check the agent trunk migration and settings." };
+    return { ok: false, reason: "Agent Crazytel assignment could not be loaded. Apply migrations 20261021_000020_agent_crazytel_trunks.sql, 20261022_000022_agent_crazytel_caller_ids.sql, and 20261023_000023_agent_crazytel_outbound_uri.sql, then check Settings." };
   }
   const sipUri = assignedUsername ? `sip:${assignedUsername}@hybrid.sip.crazytel.net.au` : credentials.webrtcSipUri ?? "";
   const webrtcPassword = assignedUsername ? credentials[`agent-${agentId}-webrtcPassword`] ?? "" : credentials.webrtcPassword ?? "";
   const websocketServer = typeof settings.websocketUrl === "string" ? settings.websocketUrl : "wss://hybrid.sip.crazytel.net.au:8443";
-  const outboundTemplate = typeof settings.outboundUriTemplate === "string" ? settings.outboundUriTemplate : "";
+  const outboundTemplate = CRAZYTEL_OUTBOUND_URI_TEMPLATE;
   if (!sipUri.trim() || !webrtcPassword.trim()) return { ok: false, reason: "Company Crazytel WebRTC identity and password are not configured." };
   if (!websocketServer.startsWith("wss://")) return { ok: false, reason: "Crazytel WebRTC must use a secure WSS signaling URL." };
-  if (!outboundTemplate.trim()) return { ok: false, reason: "Set the company outbound SIP URI template confirmed for its Hybrid trunk." };
   const targetUri = buildCrazytelOutboundTarget(outboundTemplate, destinationPhone);
-  if (!targetUri) return { ok: false, reason: "The company outbound SIP URI template or contact phone number is invalid." };
+  if (!targetUri) return { ok: false, reason: "The contact phone number is invalid for Crazytel calling. Check that it includes a valid country or area code." };
+  const passthroughEnabled = settings.callerIdPassthroughEnabled === true;
+  const outboundCallerId = passthroughEnabled && assignedCallerId && buildCrazytelCallerIdHeaders(assignedCallerId).length
+    ? assignedCallerId
+    : undefined;
   const turnUsername = credentials.turnUsername ?? "";
   const turnPassword = credentials.turnPassword ?? "";
   const hasTurnCredentials = Boolean(turnUsername.trim() && turnPassword.trim());
@@ -90,6 +93,7 @@ export async function getCompanyCrazytelWebRtcConfig(companyId: string, agentId:
       targetUri,
       turnUrls: hasTurnCredentials ? ["turn:turn.crazytel.net:3478?transport=udp", "turns:turn.crazytel.net:5349?transport=tcp"] : ["stun:stun.l.google.com:19302"],
       ...(hasTurnCredentials ? { turnUsername, turnPassword } : {}),
+      ...(outboundCallerId ? { outboundCallerId } : {}),
     },
   };
 }

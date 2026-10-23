@@ -92,18 +92,11 @@ export async function POST(request: Request) {
         }
       }));
       checks.push(...results);
-      const sipUri = credentials.webrtcSipUri ?? "";
-      const webrtcPassword = credentials.webrtcPassword ?? "";
-      checks.push({
-        name: "Company WebRTC identity",
-        state: sipUri.startsWith("sip:") && Boolean(webrtcPassword) ? "success" : "failure",
-        message: sipUri.startsWith("sip:") && webrtcPassword ? "SIP URI and WebRTC password are saved; actual SIP registration still needs a browser test." : "Enter a valid SIP URI and dedicated WebRTC password.",
-      });
       const failed = checks.filter((check) => check.state === "failure");
       state = failed.length ? "failed" : "connected";
       message = failed.length
-        ? `${failed.length} check(s) need attention. This check does not place a call or confirm SIP registration.`
-        : "API, trunk list and recording endpoint responded; WebRTC credentials are present. This does not confirm an actual call or recording.";
+        ? `${failed.length} Crazytel API check(s) need attention. This does not test WebRTC registration or place a call.`
+        : "Crazytel API, trunk list and recording endpoint responded. Add and test a Hybrid trunk below to enable browser calling.";
     } catch {
       message = "Could not load Crazytel settings or reach the configured API host.";
     } finally {

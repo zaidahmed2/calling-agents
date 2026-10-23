@@ -6,11 +6,12 @@ import { Clock3, PhoneCall, PhoneOff } from "lucide-react";
 import { Inviter, Registerer, SessionState, UserAgent, Web } from "sip.js";
 
 import { Button, StatusBadge } from "@/components/ui";
+import { buildCrazytelCallerIdHeaders } from "@/lib/crazytel-utils";
 import styles from "@/app/contacts/[id]/contact-profile.module.css";
 
 type StartedCall = { call_id: string; requested_at: string; ended_at?: string | null; manual_duration_seconds?: number | null };
 type CallStage = "picked" | "not-picked" | "call-later" | "busy" | "interested";
-type TelephonyConfig = { websocketServer: string; sipUri: string; webrtcPassword: string; targetUri: string; turnUrls: string[]; turnUsername?: string; turnPassword?: string };
+type TelephonyConfig = { websocketServer: string; sipUri: string; webrtcPassword: string; targetUri: string; turnUrls: string[]; turnUsername?: string; turnPassword?: string; outboundCallerId?: string };
 export type InitialManualCall = { call: StartedCall; telephony: TelephonyConfig };
 
 export async function startManualCall(contactId: string): Promise<InitialManualCall> {
@@ -114,6 +115,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
 
     setCallStatus("Dialing");
     const inviter = new Inviter(userAgent, targetUri, {
+      extraHeaders: buildCrazytelCallerIdHeaders(configuration.outboundCallerId),
       sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
     });
     const providerCallId = inviter.request.callId;

@@ -24,25 +24,24 @@ CRAZYTEL_API_KEY=your_crazytel_api_key
 CRAZYTEL_WEBRTC_SIP_URI=sip:YOUR_HYBRID_USERNAME@hybrid.sip.crazytel.net.au
 CRAZYTEL_WEBRTC_PASSWORD=your_hybrid_webrtc_password
 CRAZYTEL_WEBRTC_WSS_URL=wss://hybrid.sip.crazytel.net.au:8443
-CRAZYTEL_OUTBOUND_URI_TEMPLATE=
 CRAZYTEL_TURN_USERNAME=
 CRAZYTEL_TURN_PASSWORD=
 CRAZYTEL_CALLER_ID=your_verified_caller_id
 ```
 
-4. Set the **outbound SIP Request-URI** syntax confirmed by Crazytel for PSTN numbers in `CRAZYTEL_OUTBOUND_URI_TEMPLATE`, using `{number}` for the destination.
+4. Outbound PSTN routing uses Crazytel's confirmed format, `sip:{number}@hybrid.sip.crazytel.net.au`. The CRM applies this automatically; admins do not enter a URI template. Australian national numbers beginning with `0` are normalized to `61…` and non-digits are removed.
 5. Crazytel's public WebRTC guide lists TURN host/ports but does not specify whether your account needs TURN credentials. Leave the optional username/password empty unless Crazytel supplies them. If supplied, configure both.
-6. Configure the trunk's caller ID in Crazytel as a verified CLI. The app does not spoof a caller ID in SIP requests.
+6. Configure the trunk's caller ID in Crazytel as a verified CLI. For per-agent Caller ID Passthrough, Crazytel must enable the feature on the account first. Then, in **Settings & Integrations → Crazytel → Connection settings**, enable **Crazytel support confirmed Caller ID Passthrough is enabled**. Only assigned, verified caller IDs are sent as `Remote-Party-ID` and `P-Asserted-Identity` INVITE headers; with the setting off or no assignment, calls retain the current header behavior.
 7. In Settings, select **Verify API & calling setup**. It checks the API balance, SIP trunk list, and Hybrid recording list endpoints, plus the presence of the company WebRTC identity. It does not place a call or prove SIP registration.
-8. For dedicated trunks, open **Agents → Agent activity**, choose that agent's enabled trunk, enter its WebRTC password, click **Test WebRTC login**, and only then assign it. A successful SIP REGISTER confirms authentication/connectivity; it does not place a call.
+8. For dedicated trunks, create and configure each Hybrid trunk in Crazytel MyAccount first, set its own verified caller ID, and enable WebRTC. In **Settings & Integrations → Crazytel**, refresh the API trunk list and select **Verify & assign**, or choose **Add trunk manually** if Crazytel does not return that trunk through the API. Manual entry requires the trunk SIP username, a caller ID verified by the Crazytel account API, and its WebRTC password. The CRM applies the confirmed outbound PSTN URI format automatically. Test registration, then assign it to an agent. A successful SIP REGISTER confirms authentication/connectivity; it does not place a call or confirm PSTN routing.
 9. Sign in as the agent and use an approved test contact and destination. Browser microphone access requires HTTPS in deployment; localhost is allowed for local development.
 
 ## Credential and call-truth notes
 
 - The Crazytel API key stays server-side. It is used only for HTTPS API operations such as the Settings credential check; it is not used to authenticate WebRTC media. Crazytel's documented API uses one API key; no separate API secret is required.
 - SIP.js must receive a SIP identity and WebRTC password in the agent's browser to register and establish WebRTC. This is inherently visible to that authenticated agent/browser session. Prefer distinct Crazytel Hybrid trunks/WebRTC credentials per agent and rotate them when access changes.
-- The app can assign one enabled Crazytel SIP trunk to each company agent and stores that agent's WebRTC password encrypted with the company's integration credentials. Apply the central agent-trunk migration before using dedicated trunks.
-- Crazytel verified caller IDs can be refreshed in **Settings & Integrations** and staged for an agent in Settings or the agent detail page. Apply `20261022_000022_agent_crazytel_caller_ids.sql` to the central database first. This assignment does not alter the existing SIP/WebRTC connection or outbound INVITE. It does not affect the presented caller ID until Crazytel enables Caller ID Passthrough and per-call SIP header signaling is explicitly implemented and verified.
+- The app can assign one enabled Crazytel SIP trunk to each company agent and stores that agent's WebRTC password encrypted with the company's integration credentials. Apply migrations `20261021_000020_agent_crazytel_trunks.sql`, `20261022_000022_agent_crazytel_caller_ids.sql`, and `20261023_000023_agent_crazytel_outbound_uri.sql` to the central database first. Existing company-level SIP credentials are retained; a dedicated trunk is used only for agents assigned to it.
+- Crazytel trunks and their trunk-configured caller IDs are refreshed in **Settings & Integrations → Crazytel**. Each trunk must use a caller ID that Crazytel returns in its verified-CLI API before the app allows assignment. If a trunk is missing from the SIP-trunk API, it can be added manually after its WebRTC registration succeeds; manual entries are saved with the agent assignment in `company_memberships`. The agent profile and Settings manager use the same assignment. This dedicated-trunk workflow uses each trunk's configured caller ID and does not require Caller ID Passthrough.
+- Outbound calls use Crazytel's confirmed `sip:{number}@hybrid.sip.crazytel.net.au` Request-URI automatically. The CRM substitutes the contact's normalized phone number; admins do not enter a destination template or manually construct the SIP URI.
 - The app sends call audio directly between the browser and Crazytel over WebRTC; the Next.js server does not proxy or record call audio.
 - Call recording playback is available only when Crazytel has actually created a recording and the account API key has permission to read it. The admin call log and contact call history look up recordings by SIP Call-ID and use the authenticated provider stream endpoint. Browser call duration remains agent-reported until provider CDR/webhook reconciliation is implemented.
-- Outbound dial target format is intentionally required configuration. The implementation refuses to start until `CRAZYTEL_OUTBOUND_URI_TEMPLATE` is set, to avoid guessing a SIP route and placing a misrouted/charged call.
