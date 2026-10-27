@@ -28,14 +28,26 @@ export async function startManualCall(contactId: string): Promise<InitialManualC
 }
 
 export async function endManualCall(callId: string): Promise<{ ended_at: string; manual_duration_seconds: number }> {
-  const response = await fetch("/api/calls/manual", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "end", callId }),
-  });
-  const result = await response.json() as { result?: { ended_at?: string; manual_duration_seconds?: number }; error?: string };
-  if (!response.ok || !result.result?.ended_at) throw new Error(result.error ?? "Call could not be ended. Try again.");
-  return { ended_at: result.result.ended_at, manual_duration_seconds: result.result.manual_duration_seconds ?? 0 };
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch("/api/calls/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "end", callId }),
+      signal: controller.signal,
+    });
+    const result = await response.json() as { result?: { ended_at?: string; manual_duration_seconds?: number }; error?: string };
+    if (!response.ok || !result.result?.ended_at) throw new Error(result.error ?? "Call could not be ended. Try again.");
+    return { ended_at: result.result.ended_at, manual_duration_seconds: result.result.manual_duration_seconds ?? 0 };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The call ended, but saving its status is taking too long. Retry End to resync the call record.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export default function AgentCallWorkflow({ contactId, contactName, initialCall, onCallSaved }: { contactId: string; contactName: string; initialCall?: InitialManualCall; onCallSaved?: (message: string) => void }) {
@@ -61,6 +73,18 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   const reportedProviderStateRef = useRef<"ringing" | "answered" | null>(null);
   const resultStatusRef = useRef<string | null>(null);
   const endCallRef = useRef<(sendBye: boolean) => Promise<void>>(async () => undefined);
+
+  async function stopTelephony() {
+    const registerer = registererRef.current;
+    const userAgent = userAgentRef.current;
+    registererRef.current = null;
+    inviterRef.current = null;
+    userAgentRef.current = null;
+    if (registerer) void registerer.unregister().catch(() => undefined);
+    if (userAgent) await userAgent.stop().catch((stopError: unknown) => {
+      console.error("Could not stop the Crazytel WebRTC user agent.", stopError);
+    });
+  }
 
   async function reportProviderCallState(callId: string, providerCallId: string, providerState: "ringing" | "answered") {
     if (endedRef.current) return;
@@ -135,7 +159,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
         }
       } else if (state === SessionState.Terminated && !endedRef.current) {
         if (answeredAtRef.current === null) {
-          resultStatusRef.current ??= "Call ended before answer";
+          resultStatusRef.current ??= "Call ended before answer without a SIP rejection response";
           setCallStatus(resultStatusRef.current);
           setOutcome("not-picked");
         } else {
@@ -154,24 +178,26 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       },
       onReject: (response) => {
         const statusCode = response.message.statusCode;
+        const reasonPhrase = response.message.reasonPhrase?.trim();
+        const sipFailure = `Crazytel rejected the call (SIP ${statusCode ?? "unknown"}${reasonPhrase ? ` ${reasonPhrase}` : ""})`;
         if (statusCode === 486 || statusCode === 600) {
-          resultStatusRef.current = "Busy";
-          setCallStatus("Busy");
+          resultStatusRef.current = `${sipFailure} — Busy`;
+          setCallStatus(resultStatusRef.current);
           setOutcome("busy");
         } else if (statusCode === 603) {
-          resultStatusRef.current = "Declined";
-          setCallStatus("Declined");
+          resultStatusRef.current = `${sipFailure} — Declined`;
+          setCallStatus(resultStatusRef.current);
           setOutcome("not-picked");
         } else if (statusCode === 408) {
-          resultStatusRef.current = "No answer";
-          setCallStatus("No answer");
+          resultStatusRef.current = `${sipFailure} — No answer`;
+          setCallStatus(resultStatusRef.current);
           setOutcome("not-picked");
         } else if (statusCode === 480) {
-          resultStatusRef.current = "Temporarily unavailable";
-          setCallStatus("Temporarily unavailable");
+          resultStatusRef.current = `${sipFailure} — Temporarily unavailable`;
+          setCallStatus(resultStatusRef.current);
           setOutcome("not-picked");
         } else {
-          resultStatusRef.current = `Call failed${statusCode ? ` (${statusCode})` : ""}`;
+          resultStatusRef.current = sipFailure;
           setCallStatus(resultStatusRef.current);
           setOutcome("not-picked");
         }
@@ -196,7 +222,9 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   useEffect(() => {
     if (!initialCall || !telephony || userAgentRef.current) return;
     void connectInitialCall(telephony, initialCall.call.call_id).catch(async (connectError: unknown) => {
-      setError(connectError instanceof Error ? connectError.message : "Crazytel WebRTC could not connect.");
+      const message = connectError instanceof Error ? connectError.message : "Crazytel WebRTC could not connect.";
+      resultStatusRef.current = `Call setup failed: ${message}`;
+      setError(message);
       await endCallRef.current(false);
     });
   }, [initialCall, telephony]);
@@ -233,16 +261,8 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : "Call could not be started.");
       if (startedCall) {
-        const inviter = inviterRef.current;
-        if (inviter) {
-          if (inviter.state === SessionState.Established) await inviter.bye().catch(() => undefined);
-          else if (inviter.state === SessionState.Initial || inviter.state === SessionState.Establishing) await inviter.cancel().catch(() => undefined);
-        }
-        await registererRef.current?.unregister().catch(() => undefined);
-        await userAgentRef.current?.stop().catch(() => undefined);
-        registererRef.current = null;
-        inviterRef.current = null;
-        userAgentRef.current = null;
+        resultStatusRef.current = `Call setup failed: ${startError instanceof Error ? startError.message : "Crazytel WebRTC could not connect."}`;
+        await stopTelephony();
         const response = await fetch("/api/calls/manual", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -254,6 +274,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
           endedRef.current = true;
           setCall(endedCall);
           setElapsedSeconds(endedCall.manual_duration_seconds ?? 0);
+          setCallStatus(resultStatusRef.current);
           setFinishing(true);
         }
       }
@@ -276,21 +297,21 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       await answeredStatePromiseRef.current?.catch(() => undefined);
       const inviter = inviterRef.current;
       if (sendBye && inviter) {
-        if (inviter.state === SessionState.Established) await inviter.bye();
-        else if (inviter.state === SessionState.Initial || inviter.state === SessionState.Establishing) await inviter.cancel();
+        try {
+          if (inviter.state === SessionState.Established) await inviter.bye();
+          else if (inviter.state === SessionState.Initial || inviter.state === SessionState.Establishing) await inviter.cancel();
+        } catch (sipError) {
+          console.error("Could not signal Crazytel to end the call; saving the local call record anyway.", sipError);
+        }
       }
       setCallStatus("Saving call end");
+      await stopTelephony();
       const result = await endManualCall(call.call_id);
       const finalSeconds = result.manual_duration_seconds;
       setElapsedSeconds(finalSeconds);
       setCall((current) => current ? { ...current, ended_at: result.ended_at, manual_duration_seconds: finalSeconds } : current);
       setCallStatus(resultStatusRef.current ?? "Call ended");
       setFinishing(true);
-      await registererRef.current?.unregister().catch(() => undefined);
-      await userAgentRef.current?.stop().catch(() => undefined);
-      registererRef.current = null;
-      inviterRef.current = null;
-      userAgentRef.current = null;
     } catch (endError) {
       endedRef.current = false;
       setError(endError instanceof Error ? endError.message : "Call could not be ended.");

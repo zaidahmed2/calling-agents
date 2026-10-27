@@ -3,9 +3,15 @@ import { describe, expect, it } from "vitest";
 import { getContactCallStatus } from "@/lib/contact-call-status";
 
 describe("contact call result classification", () => {
-  it("marks a call answered by the provider or disposition as picked", () => {
-    expect(getContactCallStatus({ answered_at: "2026-10-21T00:00:00Z", current_state: "completed", outcome: "not-picked" }, true)).toBe("picked");
+  it("uses the saved call result when it differs from the provider answer signal", () => {
+    expect(getContactCallStatus({ answered_at: "2026-10-21T00:00:00Z", current_state: "completed", outcome: "not-picked" }, true)).toBe("not-picked");
+    expect(getContactCallStatus({ answered_at: "2026-10-21T00:00:00Z", current_state: "completed", outcome: "busy" }, true)).toBe("not-picked");
     expect(getContactCallStatus({ answered_at: null, current_state: "completed", outcome: "interested" }, true)).toBe("picked");
+    expect(getContactCallStatus({ answered_at: null, current_state: "completed", outcome: "call-later" }, true)).toBe("picked");
+  });
+
+  it("uses the provider answer signal only when no call result is saved", () => {
+    expect(getContactCallStatus({ answered_at: "2026-10-21T00:00:00Z", current_state: "completed", outcome: null }, true)).toBe("picked");
   });
 
   it("marks a completed unanswered call as not picked", () => {

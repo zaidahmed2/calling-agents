@@ -5,7 +5,9 @@ export function getContactCallStatus(
   completeHistory: boolean,
 ): ContactCallStatus {
   if (!call) return completeHistory ? "not-called" : "unknown";
-  if (call.answered_at || ["picked", "interested", "call-later"].includes(call.outcome ?? "")) return "picked";
+  if (call.outcome === "not-picked" || call.outcome === "busy") return "not-picked";
+  if (["picked", "interested", "call-later"].includes(call.outcome ?? "")) return "picked";
+  if (call.answered_at) return "picked";
   if (["completed", "failed", "cancelled"].includes(call.current_state)) return "not-picked";
   return "in-progress";
 }
