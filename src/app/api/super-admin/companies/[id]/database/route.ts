@@ -36,6 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
   if (typeof body.projectRef !== "string" || typeof body.publishableKey !== "string" || typeof body.serviceRoleKey !== "string"
     || body.projectRef.length > 100 || body.publishableKey.length > 8192 || body.serviceRoleKey.length > 8192
+    || (body.managementApiToken !== undefined && (typeof body.managementApiToken !== "string" || body.managementApiToken.length > 8192))
     || !body.publishableKey.trim() || !body.serviceRoleKey.trim()) {
     return NextResponse.json({ error: "Enter the project ID, publishable key, and server-side service-role key." }, { status: 400 });
   }
@@ -51,7 +52,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const setup = await getSetupCompany(companyId);
   if ("error" in setup) return NextResponse.json({ error: setup.error }, { status: setup.status });
-  const credentials = { projectUrl, publishableKey: body.publishableKey, serviceRoleKey: body.serviceRoleKey };
+  const credentials = {
+    projectUrl,
+    publishableKey: body.publishableKey,
+    serviceRoleKey: body.serviceRoleKey,
+    ...(typeof body.managementApiToken === "string" && body.managementApiToken.trim()
+      ? { managementApiToken: body.managementApiToken.trim() }
+      : {}),
+  };
   let credentialsCiphertext: string;
   try {
     credentialsCiphertext = encryptDatabaseCredentials(credentials);
@@ -98,6 +106,56 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       provisioning_error_category: null,
     },
   }, { headers: { "Cache-Control": "no-store" } });
+}
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getSession();
+  if (!session?.isSuperAdmin) return NextResponse.json({ error: "Platform administrator access is required." }, { status: 403 });
+  if (request.headers.get("origin") !== new URL(request.url).origin) {
+    return NextResponse.json({ error: "Database credentials must be updated from this application." }, { status: 403 });
+  }
+
+  const { id: companyId } = await params;
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid Management API token update." }, { status: 400 });
+  }
+  const body = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  if (typeof body.managementApiToken !== "string" || body.managementApiToken.length > 8192) {
+    return NextResponse.json({ error: "Enter a valid Supabase Management API token." }, { status: 400 });
+  }
+
+  try {
+    const central = createSupabaseServiceClient();
+    const [{ data: database, error: databaseError }, { data: secret, error: secretError }] = await Promise.all([
+      central.from("company_databases").select("database_mode").eq("company_id", companyId).maybeSingle(),
+      central.from("company_database_secrets").select("credentials_ciphertext").eq("company_id", companyId).maybeSingle(),
+    ]);
+    if (databaseError || secretError) return NextResponse.json({ error: "Company database credentials could not be loaded." }, { status: 503 });
+    if (!database || database.database_mode !== "external") return NextResponse.json({ error: "This company does not use an external database." }, { status: 409 });
+    if (!secret?.credentials_ciphertext) return NextResponse.json({ error: "Configure the company's project credentials before adding its Management API token." }, { status: 409 });
+
+    const credentials = (await import("@/lib/database-secrets")).decryptDatabaseCredentials(secret.credentials_ciphertext);
+    const token = body.managementApiToken.trim();
+    const credentialsCiphertext = encryptDatabaseCredentials({
+      ...credentials,
+      ...(token ? { managementApiToken: token } : { managementApiToken: undefined }),
+    });
+    const { error } = await central.from("company_database_secrets").update({
+      credentials_ciphertext: credentialsCiphertext,
+      updated_at: new Date().toISOString(),
+    }).eq("company_id", companyId);
+    if (error) return NextResponse.json({ error: "The encrypted Management API token could not be saved." }, { status: 503 });
+
+    return NextResponse.json({ ok: true, tokenConfigured: Boolean(token) }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("INTEGRATION_ENCRYPTION_KEY")) {
+      return NextResponse.json({ error: "The app server needs a valid INTEGRATION_ENCRYPTION_KEY to securely store this token." }, { status: 503 });
+    }
+    return NextResponse.json({ error: "The Management API token could not be encrypted and saved." }, { status: 503 });
+  }
 }
 
 export async function PUT(_request: Request, { params }: { params: Promise<{ id: string }> }) {

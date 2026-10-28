@@ -51,14 +51,16 @@ function normalizeContact(value: unknown) {
   const subject = typeof record.subject === "string" ? record.subject.trim() : "";
   const notes = typeof record.notes === "string" ? record.notes.trim() : "";
   const leadSource = typeof record.leadSource === "string" ? record.leadSource.trim() : "";
-  const assignedAgentId = typeof record.assignedAgentId === "string" && record.assignedAgentId ? record.assignedAgentId : null;
+  const assignedAgentIds = Array.isArray(record.assignedAgentIds)
+    ? [...new Set(record.assignedAgentIds.filter((value): value is string => typeof value === "string" && value.length > 0))]
+    : typeof record.assignedAgentId === "string" && record.assignedAgentId ? [record.assignedAgentId] : [];
   const customFields = record.customFields && typeof record.customFields === "object" && !Array.isArray(record.customFields)
     ? record.customFields as Record<string, unknown>
     : {};
   if (!firstName && !lastName) return { error: "Contact name is required." };
   if (phone.length > 80 || email.length > 320 || status.length > 80 || subject.length > 500 || notes.length > 5000 || leadSource.length > 160) return { error: "One or more contact fields exceed the allowed length." };
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "Enter a valid contact email." };
-  return { value: { first_name: firstName, last_name: lastName, phone: phone || null, email: email || null, status, subject: subject || null, notes: notes || null, lead_source: leadSource || null, assigned_agent_id: assignedAgentId, custom_fields: customFields } };
+  return { value: { first_name: firstName, last_name: lastName, phone: phone || null, email: email || null, status, subject: subject || null, notes: notes || null, lead_source: leadSource || null, assigned_agent_id: assignedAgentIds[0] ?? null, assigned_agent_ids: assignedAgentIds, custom_fields: customFields } };
 }
 
 export async function POST(request: Request) {
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
   if (!records.length) return body.preview === true
     ? NextResponse.json({ valid: 0, duplicates: [], invalidRows, total: rows.length })
     : NextResponse.json({ error: "No valid contact rows were found.", invalidRows }, { status: 400 });
-  const assignmentIds = [...new Set(records.flatMap((item) => item.assigned_agent_id ? [item.assigned_agent_id] : []))];
+  const assignmentIds = [...new Set(records.flatMap((item) => item.assigned_agent_ids))];
   if (assignmentIds.length) {
     const agents = await listActiveAgentProfiles();
     const allowed = new Set(agents.map((agent) => agent.id));
@@ -138,17 +140,21 @@ export async function PATCH(request: Request) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return errorResponse(400, "Invalid contact update.");
   const body = payload as Record<string, unknown>;
   const contactIds = Array.isArray(body.contactIds) ? [...new Set(body.contactIds.filter((value): value is string => typeof value === "string" && value.length > 0))] : [];
-  const hasAssignee = Object.hasOwn(body, "assignedTo");
-  const assignedTo = body.assignedTo;
+  const hasAssignment = Object.hasOwn(body, "assignedAgentIds") || Object.hasOwn(body, "assignedTo");
+  const assignedAgentIds = Array.isArray(body.assignedAgentIds)
+    ? [...new Set(body.assignedAgentIds.filter((value): value is string => typeof value === "string" && value.length > 0))]
+    : typeof body.assignedTo === "string" && body.assignedTo ? [body.assignedTo] : [];
   const status = body.status;
   if (contactIds.length === 0 || contactIds.length > 50) return errorResponse(400, "Select between 1 and 50 contacts.");
-  if (!hasAssignee && status === undefined) return errorResponse(400, "Choose an assignment or status change.");
-  if (hasAssignee && assignedTo !== null && typeof assignedTo !== "string") return errorResponse(400, "Invalid agent assignment.");
+  if (!hasAssignment && status === undefined) return errorResponse(400, "Choose an assignment or status change.");
+  if (hasAssignment && body.assignedAgentIds !== undefined && (!Array.isArray(body.assignedAgentIds) || body.assignedAgentIds.some((value) => typeof value !== "string"))) return errorResponse(400, "Invalid agent assignment.");
+  if (assignedAgentIds.length > 100) return errorResponse(400, "Select no more than 100 agents for each contact.");
   if (status !== undefined && (typeof status !== "string" || !status.trim() || status.trim().length > 80)) return errorResponse(400, "Status must contain 1 to 80 characters.");
 
-  if (hasAssignee && assignedTo !== null) {
+  if (hasAssignment && assignedAgentIds.length) {
     const agents = await listActiveAgentProfiles();
-    if (!agents.some((agent) => agent.id === assignedTo)) return errorResponse(400, "The selected agent is not active in this company.");
+    const activeAgentIds = new Set(agents.map((agent) => agent.id));
+    if (assignedAgentIds.some((id) => !activeAgentIds.has(id))) return errorResponse(400, "One or more selected agents are not active in this company.");
   }
 
   try {
@@ -156,19 +162,19 @@ export async function PATCH(request: Request) {
     const args = mode === "shared"
       ? {
         p_contact_ids: contactIds,
-        p_set_assignment: hasAssignee,
-        p_assigned_agent_id: hasAssignee ? assignedTo : null,
+        p_set_assignment: hasAssignment,
+        p_assigned_agent_ids: assignedAgentIds,
         p_status: typeof status === "string" ? status.trim() : null,
       }
       : {
         p_company_id: session.companyId,
         p_contact_ids: contactIds,
-        p_set_assignment: hasAssignee,
-        p_assigned_agent_id: hasAssignee ? assignedTo : null,
+        p_set_assignment: hasAssignment,
+        p_assigned_agent_ids: assignedAgentIds,
         p_status: typeof status === "string" ? status.trim() : null,
         p_actor_id: session.id,
       };
-    const { data, error } = await supabase.rpc("admin_update_company_contacts", args);
+    const { data, error } = await supabase.rpc("admin_assign_company_contacts", args);
     if (error) return errorResponse(error.message.includes("company_contact_not_found") ? 404 : 503, "One or more contacts could not be updated for this company.");
     return NextResponse.json({ results: contactIds.map((contactId) => ({ contactId, ok: true, message: "Updated in CRM." })), succeeded: Number(data ?? 0), failed: 0 });
   } catch {

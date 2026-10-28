@@ -40,7 +40,7 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
   const [setupCompanyId, setSetupCompanyId] = useState<string | null>(
     initialCompanies.find((company) => company.database?.database_mode === "external" && company.status === "setup")?.id ?? null,
   );
-  const [externalDatabase, setExternalDatabase] = useState<Record<string, { projectRef: string; publishableKey: string; serviceRoleKey: string }>>({});
+  const [externalDatabase, setExternalDatabase] = useState<Record<string, { projectRef: string; publishableKey: string; serviceRoleKey: string; managementApiToken: string }>>({});
   const [databaseErrorByCompany, setDatabaseErrorByCompany] = useState<Record<string, string>>({});
 
   async function viewAsAdmin(company: CompanySummary) {
@@ -138,10 +138,10 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
     }
   }
 
-  function updateExternalDatabase(companyId: string, key: "projectRef" | "publishableKey" | "serviceRoleKey", value: string) {
+  function updateExternalDatabase(companyId: string, key: "projectRef" | "publishableKey" | "serviceRoleKey" | "managementApiToken", value: string) {
     setExternalDatabase((current) => ({
       ...current,
-      [companyId]: { ...(current[companyId] ?? { projectRef: "", publishableKey: "", serviceRoleKey: "" }), [key]: value },
+      [companyId]: { ...(current[companyId] ?? { projectRef: "", publishableKey: "", serviceRoleKey: "", managementApiToken: "" }), [key]: value },
     }));
     setDatabaseErrorByCompany((current) => ({ ...current, [companyId]: "" }));
   }
@@ -169,13 +169,39 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
         : item));
       setExternalDatabase((current) => ({
         ...current,
-        [company.id]: { projectRef: credentials.projectRef, publishableKey: "", serviceRoleKey: "" },
+        [company.id]: { projectRef: credentials.projectRef, publishableKey: "", serviceRoleKey: "", managementApiToken: "" },
       }));
       setNotice(`${company.name}'s database settings were encrypted and saved. Verify the connection after applying the tenant migration.`);
     } catch (saveError) {
       setDatabaseErrorByCompany((current) => ({
         ...current,
         [company.id]: saveError instanceof Error ? saveError.message : "Company database settings could not be saved.",
+      }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveManagementApiToken(company: CompanySummary, token: string) {
+    setBusy(true);
+    setDatabaseErrorByCompany((current) => ({ ...current, [company.id]: "" }));
+    setNotice("");
+    try {
+      const response = await fetch(`/api/super-admin/companies/${encodeURIComponent(company.id)}/database`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ managementApiToken: token }),
+      });
+      const result = await response.json() as { error?: string; tokenConfigured?: boolean };
+      if (!response.ok) throw new Error(result.error ?? "Company Management API token could not be saved.");
+      updateExternalDatabase(company.id, "managementApiToken", "");
+      setNotice(result.tokenConfigured
+        ? `${company.name}'s Management API token was encrypted and saved.`
+        : `${company.name} will now use the app's global Management API token, if configured.`);
+    } catch (saveError) {
+      setDatabaseErrorByCompany((current) => ({
+        ...current,
+        [company.id]: saveError instanceof Error ? saveError.message : "Company Management API token could not be saved.",
       }));
     } finally {
       setBusy(false);
@@ -237,20 +263,27 @@ export default function SuperAdminConsole({ initialCompanies, initialError = "" 
         <div className={styles.companyDatabase}>
           <div className={styles.databaseSummary}>
             <strong>CRM database: {company.database?.database_mode ?? "not configured"} · {company.database?.connection_status ?? "unknown"}</strong>
-            {company.database?.database_mode === "external" && company.status === "setup" ? <button type="button" className={styles.databaseExpand} aria-expanded={setupCompanyId === company.id} aria-controls={`database-setup-${company.id}`} onClick={() => setSetupCompanyId(setupCompanyId === company.id ? null : company.id)}>
+            {company.database?.database_mode === "external" ? <button type="button" className={styles.databaseExpand} aria-expanded={setupCompanyId === company.id} aria-controls={`database-setup-${company.id}`} onClick={() => setSetupCompanyId(setupCompanyId === company.id ? null : company.id)}>
               {setupCompanyId === company.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              {setupCompanyId === company.id ? "Hide setup" : "Configure database"}
+              {setupCompanyId === company.id ? "Hide database settings" : company.status === "setup" ? "Configure database" : "Manage migration token"}
             </button> : null}
             {company.database?.database_mode === "external" && company.database.project_ref ? <span className={styles.projectRef}>Project: {company.database.project_ref}</span> : null}
           </div>
-          {company.database?.database_mode === "external" && company.status === "setup" && setupCompanyId === company.id ? <div id={`database-setup-${company.id}`} className={styles.databaseSetup}>
-            <p>Apply <code>supabase/tenant-migrations/20261018_000001_tenant_crm.sql</code> in this company’s Supabase project first. For an existing tenant, also apply <code>supabase/tenant-migrations/20261021_000002_answered_call_duration.sql</code>. The publishable key identifies the project; the service-role key is required for server-side CRM access and is encrypted before storage.</p>
+          {company.database?.database_mode === "external" && setupCompanyId === company.id ? <div id={`database-setup-${company.id}`} className={styles.databaseSetup}>
+            {company.status === "setup" ? <p>For a new tenant, apply <code>supabase/tenant-migrations/20261018_000001_tenant_crm.sql</code> in its Supabase project first. For existing tenants, apply any missing initial migrations. The service-role key is required for server-side CRM access. All credentials entered here are encrypted before storage.</p> : <p>Enter a project-specific Supabase Management API token if this company needs a different token from the app-wide setting. The token is encrypted and never shown again. Clear it to use the app-wide token instead.</p>}
             <div className={styles.databaseFields}>
-              <label>Supabase project ID<input type="text" autoComplete="off" value={externalDatabase[company.id]?.projectRef ?? ""} onChange={(event) => updateExternalDatabase(company.id, "projectRef", event.target.value)} placeholder="e.g. abcdefghijklmnopqrst" /></label>
-              <label>Project publishable key<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.publishableKey ?? ""} onChange={(event) => updateExternalDatabase(company.id, "publishableKey", event.target.value)} /></label>
-              <label>Project service-role key<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.serviceRoleKey ?? ""} onChange={(event) => updateExternalDatabase(company.id, "serviceRoleKey", event.target.value)} /></label>
-              <button type="button" onClick={() => void saveExternalDatabaseConfiguration(company)} disabled={busy}><Save size={14} />{busy ? "Saving..." : "Save / Configure"}</button>
-              <button type="button" className={styles.verifyDatabase} onClick={() => void verifyExternalDatabase(company)} disabled={busy || !company.database.project_ref}><ShieldCheck size={14} />{busy ? "Checking..." : "Verify Database"}</button>
+              {company.status === "setup" ? <>
+                <label>Supabase project ID<input type="text" autoComplete="off" value={externalDatabase[company.id]?.projectRef ?? ""} onChange={(event) => updateExternalDatabase(company.id, "projectRef", event.target.value)} placeholder="e.g. abcdefghijklmnopqrst" /></label>
+                <label>Project publishable key<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.publishableKey ?? ""} onChange={(event) => updateExternalDatabase(company.id, "publishableKey", event.target.value)} /></label>
+                <label>Project service-role key<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.serviceRoleKey ?? ""} onChange={(event) => updateExternalDatabase(company.id, "serviceRoleKey", event.target.value)} /></label>
+                <label>Optional Management API token<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.managementApiToken ?? ""} onChange={(event) => updateExternalDatabase(company.id, "managementApiToken", event.target.value)} placeholder="Uses app-wide token if blank" /></label>
+                <button type="button" onClick={() => void saveExternalDatabaseConfiguration(company)} disabled={busy}><Save size={14} />{busy ? "Saving..." : "Save / Configure"}</button>
+                <button type="button" className={styles.verifyDatabase} onClick={() => void verifyExternalDatabase(company)} disabled={busy || !company.database.project_ref}><ShieldCheck size={14} />{busy ? "Checking..." : "Verify Database"}</button>
+              </> : <>
+                <label>New company-specific Management API token<input type="password" autoComplete="new-password" value={externalDatabase[company.id]?.managementApiToken ?? ""} onChange={(event) => updateExternalDatabase(company.id, "managementApiToken", event.target.value)} placeholder="Token is hidden after saving" /></label>
+                <button type="button" onClick={() => void saveManagementApiToken(company, externalDatabase[company.id]?.managementApiToken ?? "")} disabled={busy || !externalDatabase[company.id]?.managementApiToken.trim()}><Save size={14} />{busy ? "Saving..." : "Save token"}</button>
+                <button type="button" className={styles.verifyDatabase} onClick={() => void saveManagementApiToken(company, "")} disabled={busy}><X size={14} />Use app-wide token</button>
+              </>}
             </div>
             {databaseErrorByCompany[company.id] ? <p className={styles.databaseError} role="alert">{databaseErrorByCompany[company.id]}</p> : null}
             {company.database.project_ref ? <p className={styles.databaseSaved}>Configuration saved. Last connection check: {company.database.last_connected_at ? new Date(company.database.last_connected_at).toLocaleString() : "not yet verified"}.</p> : null}

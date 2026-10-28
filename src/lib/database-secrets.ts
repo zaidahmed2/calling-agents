@@ -6,6 +6,7 @@ export type DatabaseCredentials = {
   projectUrl: string;
   publishableKey?: string;
   serviceRoleKey: string;
+  managementApiToken?: string;
 };
 
 function encryptionKey(): Buffer {
@@ -42,6 +43,7 @@ export function decryptDatabaseCredentials(encoded: string): DatabaseCredentials
     || typeof (parsed as Record<string, unknown>).projectUrl !== "string"
     || ((parsed as Record<string, unknown>).publishableKey !== undefined && typeof (parsed as Record<string, unknown>).publishableKey !== "string")
     || typeof (parsed as Record<string, unknown>).serviceRoleKey !== "string"
+    || ((parsed as Record<string, unknown>).managementApiToken !== undefined && typeof (parsed as Record<string, unknown>).managementApiToken !== "string")
   ) {
     throw new Error("Stored company database credentials are invalid.");
   }

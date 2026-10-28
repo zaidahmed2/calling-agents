@@ -29,10 +29,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Contact name and a valid status are required; check field lengths." }, { status: 400 });
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Enter a valid contact email." }, { status: 400 });
-  const assignedAgentId = typeof body.assignedAgentId === "string" && body.assignedAgentId ? body.assignedAgentId : null;
-  if (assignedAgentId) {
+  const assignedAgentIds = Array.isArray(body.assignedAgentIds)
+    ? [...new Set(body.assignedAgentIds.filter((value): value is string => typeof value === "string" && value.length > 0))]
+    : typeof body.assignedAgentId === "string" && body.assignedAgentId ? [body.assignedAgentId] : [];
+  if (assignedAgentIds.length > 100) return NextResponse.json({ error: "Select no more than 100 agents for this contact." }, { status: 400 });
+  if (assignedAgentIds.length) {
     const agents = await listActiveAgentProfiles();
-    if (!agents.some((agent) => agent.id === assignedAgentId)) return NextResponse.json({ error: "The selected agent is not active in this company." }, { status: 400 });
+    const activeAgentIds = new Set(agents.map((agent) => agent.id));
+    if (assignedAgentIds.some((agentId) => !activeAgentIds.has(agentId))) return NextResponse.json({ error: "One or more selected agents are not active in this company." }, { status: 400 });
   }
 
   const { client: supabase, mode } = await createCompanyCrmClient(session.companyId);
@@ -46,7 +50,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       p_status: status,
       p_subject: subject,
       p_notes: notes,
-      p_assigned_agent_id: assignedAgentId,
+      p_assigned_agent_ids: assignedAgentIds,
     }
     : {
       p_company_id: session.companyId,
@@ -58,10 +62,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       p_status: status,
       p_subject: subject,
       p_notes: notes,
-      p_assigned_agent_id: assignedAgentId,
+      p_assigned_agent_ids: assignedAgentIds,
       p_actor_id: session.id,
     };
-  const { data, error } = await supabase.rpc("admin_edit_company_contact", args);
+  const { data, error } = await supabase.rpc("admin_edit_company_contact_multi", args);
   if (error) return NextResponse.json({ error: error.message.includes("company_contact_not_found") ? "Contact is not available in this company." : "Contact could not be updated." }, { status: error.message.includes("company_contact_not_found") ? 404 : 503 });
   if (!data) return NextResponse.json({ error: "Contact is not available in this company." }, { status: 404 });
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

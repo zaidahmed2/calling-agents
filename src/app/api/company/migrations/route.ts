@@ -15,7 +15,7 @@ const noStore = { "Cache-Control": "no-store, private", Pragma: "no-cache" };
 
 async function getTenantTarget(companyId: string) {
   const metadata = await getCompanyDatabaseMetadata(companyId);
-  if (metadata.database_mode !== "external") return { metadata, client: null, projectRef: null };
+  if (metadata.database_mode !== "external") return { metadata, client: null, projectRef: null, managementApiToken: "" };
 
   const central = createSupabaseServiceClient();
   const { data, error } = await central.from("company_database_secrets")
@@ -26,7 +26,12 @@ async function getTenantTarget(companyId: string) {
   const credentials = decryptDatabaseCredentials(data.credentials_ciphertext);
   const projectRef = projectRefFromUrl(credentials.projectUrl);
   if (metadata.project_ref && metadata.project_ref !== projectRef) throw new Error("Company database project reference does not match its saved URL.");
-  return { metadata, client: createExternalClient(credentials), projectRef };
+  return {
+    metadata,
+    client: createExternalClient(credentials),
+    projectRef,
+    managementApiToken: credentials.managementApiToken?.trim() ?? "",
+  };
 }
 
 async function getAppliedVersions(client: NonNullable<Awaited<ReturnType<typeof getTenantTarget>>["client"]>) {
@@ -64,9 +69,9 @@ export async function GET() {
       required,
       version: TENANT_SCHEMA_VERSION,
       applied,
-      canApply: session.role === "admin" && (applied || Boolean(env.supabaseManagementApiToken)),
+      canApply: session.role === "admin" && (applied || Boolean(target.managementApiToken || env.supabaseManagementApiToken)),
       admin: session.role === "admin",
-      missingToken: !applied && !env.supabaseManagementApiToken,
+      missingToken: !applied && !target.managementApiToken && !env.supabaseManagementApiToken,
     }, { headers: noStore });
   } catch (error) {
     return NextResponse.json({
@@ -102,9 +107,10 @@ export async function POST(request: Request) {
         error: "The initial tenant schema has not been installed. Ask your Super Admin to connect this database before applying incremental updates.",
       }, { status: 409, headers: noStore });
     }
-    if (pendingMigrations.length && !env.supabaseManagementApiToken) {
+    const managementApiToken = target.managementApiToken || env.supabaseManagementApiToken;
+    if (pendingMigrations.length && !managementApiToken) {
       return NextResponse.json({
-        error: "Automatic database updates are not enabled on this server. Set SUPABASE_MANAGEMENT_API_TOKEN in the app hosting environment.",
+        error: "No Supabase Management API token is configured for this company or the app server. Add this company's token in Super Admin database settings or configure SUPABASE_MANAGEMENT_API_TOKEN.",
       }, { status: 503, headers: noStore });
     }
 
@@ -112,7 +118,7 @@ export async function POST(request: Request) {
       const response = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(target.projectRef)}/database/query`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${env.supabaseManagementApiToken}`,
+          Authorization: `Bearer ${managementApiToken}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
@@ -122,8 +128,13 @@ export async function POST(request: Request) {
       });
       if (!response.ok) {
         const details = (await response.text()).slice(0, 400);
+        if (response.status === 403 && details.includes("database_read")) {
+          return NextResponse.json({
+            error: `Supabase denied database access for project ${target.projectRef}. The Management API token configured for this company or the app does not have the required database_read permission. Project Owner access shown in Supabase does not automatically grant access to the token: create a Management API personal access token while signed in as an owner of project ${target.projectRef}, save it in this company's Super Admin database settings or update the app server's SUPABASE_MANAGEMENT_API_TOKEN, then retry.`,
+          }, { status: 502, headers: noStore });
+        }
         return NextResponse.json({
-          error: `Supabase could not apply migration ${migration.version} (HTTP ${response.status}).${details ? ` ${details}` : ""}`,
+          error: `Supabase could not apply migration ${migration.version} to project ${target.projectRef} (HTTP ${response.status}).${details ? ` ${details}` : ""}`,
         }, { status: 502, headers: noStore });
       }
       const { error } = await target.client.from("tenant_schema_migrations").upsert({ version: migration.version }, { onConflict: "version" });

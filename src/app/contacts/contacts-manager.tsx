@@ -7,6 +7,7 @@ import Papa from "papaparse";
 import readXlsxFile from "read-excel-file/browser";
 
 import { AdminExportLink } from "@/components/admin-export-link";
+import AgentCheckboxGroup from "@/components/agent-checkbox-group";
 import type { GhlContact, GhlCursor } from "@/lib/ghl";
 import { Pagination, SearchField, StatusBadge } from "@/components/ui";
 import styles from "@/app/contacts/contacts-manager.module.css";
@@ -43,7 +44,8 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
   const [cursor, setCursor] = useState<GhlCursor | null>(null);
   const [cursorHistory, setCursorHistory] = useState<Array<GhlCursor | null>>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [assignedTo, setAssignedTo] = useState("");
+  const [assignmentMode, setAssignmentMode] = useState<"none" | "assign" | "unassign">("none");
+  const [assignedAgentIds, setAssignedAgentIds] = useState<string[]>([]);
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -57,7 +59,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
   const [notice, setNotice] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
-  const [newContact, setNewContact] = useState({ name: "", phone: "", email: "", status: "open", subject: "", notes: "", assignedAgentId: "" });
+  const [newContact, setNewContact] = useState({ name: "", phone: "", email: "", status: "open", subject: "", notes: "", assignedAgentIds: [] as string[] });
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [importMapping, setImportMapping] = useState<ImportMapping>({ name: "", firstName: "", lastName: "", phone: "", email: "", status: "", subject: "", notes: "", leadSource: "" });
@@ -91,13 +93,16 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
     const needle = search.trim().toLowerCase();
     const matchesSearch = !needle || contact.name.toLowerCase().includes(needle) || contact.id.toLowerCase().includes(needle) || contact.email?.toLowerCase().includes(needle) || contact.phone?.includes(needle);
     const matchesStatus = statusFilter === "all" || (statusFilter === "unknown" ? !contact.status : contact.status?.toLowerCase() === statusFilter);
-    const matchesAgent = agentFilter === "all" || (agentFilter === "unassigned" ? !contact.assignedUserId : contact.assignedUserId === agentFilter);
+    const assignedIds = contact.assignedAgentIds ?? (contact.assignedUserId ? [contact.assignedUserId] : []);
+    const matchesAgent = agentFilter === "all" || (agentFilter === "unassigned" ? assignedIds.length === 0 : assignedIds.includes(agentFilter));
     const matchesCall = callFilter === "all" || contact.latestCallStatus === callFilter;
     return matchesSearch && matchesStatus && matchesAgent && matchesCall;
   });
   const visibleContacts = [...filteredContacts].sort((left, right) => {
-    const leftValue = sort.key === "name" ? left.name : sort.key === "status" ? left.status ?? "" : data.agents.find((agent) => agent.ghlUserId === left.assignedUserId)?.email ?? "";
-    const rightValue = sort.key === "name" ? right.name : sort.key === "status" ? right.status ?? "" : data.agents.find((agent) => agent.ghlUserId === right.assignedUserId)?.email ?? "";
+    const leftAssigned = left.assignedAgentIds ?? (left.assignedUserId ? [left.assignedUserId] : []);
+    const rightAssigned = right.assignedAgentIds ?? (right.assignedUserId ? [right.assignedUserId] : []);
+    const leftValue = sort.key === "name" ? left.name : sort.key === "status" ? left.status ?? "" : data.agents.find((agent) => leftAssigned.includes(agent.id))?.email ?? "";
+    const rightValue = sort.key === "name" ? right.name : sort.key === "status" ? right.status ?? "" : data.agents.find((agent) => rightAssigned.includes(agent.id))?.email ?? "";
     return leftValue.localeCompare(rightValue) * (sort.direction === "asc" ? 1 : -1);
   });
   const allVisibleSelected = visibleContacts.length > 0 && visibleContacts.every((contact) => selected.includes(contact.id));
@@ -127,13 +132,13 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
   const pageCount = data.total !== null ? Math.ceil(data.total / pageSize) : currentPage + (data.nextCursor ? 1 : 0);
   const formatDate = (value: string | null) => value ? new Date(value).toLocaleDateString("en-AU", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : "—";
   async function applyChanges() {
-    if (selected.length === 0 || (!assignedTo && !status)) return;
+    if (selected.length === 0 || (assignmentMode === "none" && !status) || (assignmentMode === "assign" && assignedAgentIds.length === 0)) return;
     setSaving(true);
     setNotice("");
     setError("");
     try {
       const body: Record<string, unknown> = { contactIds: selected };
-      if (assignedTo) body.assignedTo = assignedTo === "__unassign__" ? null : assignedTo;
+      if (assignmentMode !== "none") body.assignedAgentIds = assignmentMode === "unassign" ? [] : assignedAgentIds;
       if (status) body.status = status;
       const response = await fetch("/api/admin/contacts", {
         method: "PATCH",
@@ -145,7 +150,8 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
       setNotice(`${result.succeeded} contact${result.succeeded === 1 ? "" : "s"} updated in the CRM${result.failed ? `; ${result.failed} failed` : ""}.`);
       if (result.failed) setError(result.results.filter((item) => !item.ok).map((item) => `${item.contactId}: ${item.message}`).join(" "));
       setSelected([]);
-      setAssignedTo("");
+      setAssignmentMode("none");
+      setAssignedAgentIds([]);
       setStatus("");
       await loadPage(cursor);
     } catch (updateError) {
@@ -179,7 +185,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
       });
       const result = await response.json() as { error?: string; imported?: number };
       if (!response.ok) throw new Error(result.error ?? "Contact could not be created.");
-      setNewContact({ name: "", phone: "", email: "", status: "open", subject: "", notes: "", assignedAgentId: "" });
+      setNewContact({ name: "", phone: "", email: "", status: "open", subject: "", notes: "", assignedAgentIds: [] });
       setShowCreate(false);
       setNotice("Contact created in the company CRM.");
       await loadPage(null, []);
@@ -321,7 +327,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
               <label>Phone<input type="tel" value={newContact.phone} onChange={(event) => setNewContact((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone number" /></label>
               <label>Email<input type="email" value={newContact.email} onChange={(event) => setNewContact((current) => ({ ...current, email: event.target.value }))} placeholder="name@company.com" /></label>
               <label>Status<input required maxLength={80} value={newContact.status} onChange={(event) => setNewContact((current) => ({ ...current, status: event.target.value }))} /></label>
-              <label>Assigned agent<select value={newContact.assignedAgentId} onChange={(event) => setNewContact((current) => ({ ...current, assignedAgentId: event.target.value }))}><option value="">Unassigned</option>{data.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {agent.email}</option>)}</select></label>
+              <AgentCheckboxGroup agents={data.agents} selectedIds={newContact.assignedAgentIds} onChange={(ids) => setNewContact((current) => ({ ...current, assignedAgentIds: ids }))} />
               <label className={styles.formWide}>Subject<input value={newContact.subject} onChange={(event) => setNewContact((current) => ({ ...current, subject: event.target.value }))} placeholder="Optional lead subject" /></label>
               <label className={styles.formWide}>Notes<textarea rows={3} maxLength={5000} value={newContact.notes} onChange={(event) => setNewContact((current) => ({ ...current, notes: event.target.value }))} placeholder="Add useful context for the team" /></label>
             </div>
@@ -357,7 +363,7 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
 
         <div className={styles.filters}>
           <label>Status <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="open">Open</option><option value="unknown">Unknown</option>{[...new Set(data.contacts.flatMap((contact) => contact.status ? [contact.status] : []))].filter((value) => value.toLowerCase() !== "open").map((value) => <option value={value.toLowerCase()} key={value}>{value}</option>)}</select></label>
-          <label>Assigned agent <select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}><option value="all">All agents</option><option value="unassigned">Unassigned</option>{data.agents.map((agent) => <option value={agent.ghlUserId} key={agent.id}>{agent.email}</option>)}</select></label>
+          <label>Assigned agent <select value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)}><option value="all">All agents</option><option value="unassigned">Unassigned</option>{data.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.email}</option>)}</select></label>
           <label>Call result <select value={callFilter} onChange={(event) => setCallFilter(event.target.value)}><option value="all">All call results</option><option value="picked">Picked</option><option value="not-picked">Not picked</option><option value="not-called">Not called</option><option value="in-progress">In progress</option></select></label>
           <span className={styles.filterCount}>{visibleContacts.length} shown on this page</span>
         </div>
@@ -365,9 +371,10 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
         {selected.length > 0 ? (
           <div className={styles.bulkBar}>
             <span>{selected.length} selected</span>
-            <label><span>Assign to</span><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}><option value="">No assignment change</option><option value="__unassign__">Unassign</option>{data.agents.map((agent) => <option value={agent.ghlUserId} key={agent.id}>{agent.name} · {agent.email}</option>)}</select></label>
+            <label><span>Assignment</span><select value={assignmentMode} onChange={(event) => setAssignmentMode(event.target.value as typeof assignmentMode)}><option value="none">No assignment change</option><option value="assign">Assign selected agents</option><option value="unassign">Unassign all</option></select></label>
+            {assignmentMode === "assign" ? <AgentCheckboxGroup agents={data.agents} selectedIds={assignedAgentIds} onChange={setAssignedAgentIds} /> : null}
             <label><span>Set status</span><input value={status} onChange={(event) => setStatus(event.target.value)} maxLength={80} placeholder="Enter status, e.g. Open" /></label>
-            <button type="button" onClick={() => void applyChanges()} disabled={saving || (!assignedTo && !status)}>{saving ? "Saving..." : "Apply changes"}</button>
+            <button type="button" onClick={() => void applyChanges()} disabled={saving || (assignmentMode === "none" && !status) || (assignmentMode === "assign" && !assignedAgentIds.length)}>{saving ? "Saving..." : "Apply changes"}</button>
           </div>
         ) : null}
 
@@ -376,14 +383,15 @@ export default function ContactsManager({ initialData, initialError = "" }: { in
             <thead><tr><th><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} aria-label="Select visible contacts" /></th><th><button className={styles.sortButton} onClick={() => changeSort("name")}>CONTACT {sort.key === "name" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th>EMAIL</th><th>PHONE</th><th><button className={styles.sortButton} onClick={() => changeSort("status")}>STATUS {sort.key === "status" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th><button className={styles.sortButton} onClick={() => changeSort("agent")}>ASSIGNED AGENT {sort.key === "agent" ? sort.direction === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={12} />}</button></th><th>LAST ACTIVITY</th><th>LAST CALL</th><th>CALL RESULT</th><th>ACTIONS</th></tr></thead>
             <tbody>
               {visibleContacts.map((contact) => {
-                const agent = data.agents.find((item) => item.ghlUserId === contact.assignedUserId);
+                const assignedIds = contact.assignedAgentIds ?? (contact.assignedUserId ? [contact.assignedUserId] : []);
+                const assignedNames = data.agents.filter((item) => assignedIds.includes(item.id)).map((item) => item.email);
                 return <tr key={contact.id}>
                   <td><input type="checkbox" checked={selected.includes(contact.id)} onChange={() => toggleContact(contact.id)} aria-label={`Select ${contact.name}`} /></td>
                   <td><strong>{contact.name}</strong><small>{contact.id}</small></td>
                   <td>{contact.email ?? "—"}</td>
                   <td>{contact.phone ?? "—"}</td>
                   <td><StatusBadge tone={contact.isOpen ? "success" : contact.status ? "neutral" : "warning"}>{contact.status ?? "Unknown"}</StatusBadge></td>
-                  <td>{agent?.email ?? (contact.assignedUserId ? "Agent unavailable" : "Unassigned")}</td>
+                  <td>{assignedNames.length ? assignedNames.join(", ") : assignedIds.length ? "Agent unavailable" : "Unassigned"}</td>
                   <td>{formatDate(contact.lastActivityAt)}</td>
                   <td>{formatDate(contact.lastCallAt)}</td>
                   <td><StatusBadge tone={contact.latestCallStatus === "picked" ? "success" : contact.latestCallStatus === "not-picked" ? "warning" : "neutral"}>{contact.latestCallStatus === "not-called" ? "Not called" : contact.latestCallStatus === "in-progress" ? "In progress" : contact.latestCallStatus === "unknown" ? "Unknown" : contact.latestCallStatus}</StatusBadge></td>

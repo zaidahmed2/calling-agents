@@ -16,7 +16,7 @@ type CallRow = { id: string; agent_id: string; ghl_contact_id: string; current_s
 type CallbackRow = { id: string; contact_id: string; agent_id: string; due_at: string; status: string };
 type SessionRow = { agent_id: string; state: string; started_at: string };
 type ActivityRow = { id: string; event_type: string; created_at: string };
-type ContactSummaryRow = { status: string; assigned_agent_id: string | null };
+type ContactSummaryRow = { status: string; assigned_agent_id: string | null; assigned_agent_ids: string[] };
 
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ range?: string }> }) {
@@ -59,7 +59,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       crm.from("calls").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).eq("current_state", "failed"),
       crm.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).in("status", ["scheduled", "due", "missed"]).lte("due_at", now.toISOString()),
       crm.from("callbacks").select("id", { count: "exact", head: true }).eq("company_id", session.companyId).in("status", ["scheduled", "due", "missed"]).lt("due_at", now.toISOString()),
-      crm.from("contacts").select("status, assigned_agent_id", { count: "exact" }).eq("company_id", session.companyId).order("updated_at", { ascending: false }).limit(1000),
+      crm.from("contacts").select("status, assigned_agent_id, assigned_agent_ids", { count: "exact" }).eq("company_id", session.companyId).order("updated_at", { ascending: false }).limit(1000),
     ]);
     const results = [agentResult, sessionResult, recentCallsResult, callbackResult, activityResult, allCallsCount, answeredCount, failedCount, dueCount, overdueCount];
     available = !results.some((result) => result.error);
@@ -85,8 +85,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   const contactCounts = {
     open: contactRows.filter((contact) => contact.status.trim().toLowerCase() === "open").length,
-    assigned: contactRows.filter((contact) => Boolean(contact.assigned_agent_id)).length,
-    unassigned: contactRows.filter((contact) => !contact.assigned_agent_id).length,
+    assigned: contactRows.filter((contact) => (contact.assigned_agent_ids ?? (contact.assigned_agent_id ? [contact.assigned_agent_id] : [])).length > 0).length,
+    unassigned: contactRows.filter((contact) => (contact.assigned_agent_ids ?? (contact.assigned_agent_id ? [contact.assigned_agent_id] : [])).length === 0).length,
   };
   const openCallbacks = callbacks.filter((item) => item.status === "scheduled" || item.status === "due");
   const overdueCallbacks = openCallbacks.filter((item) => new Date(item.due_at).getTime() < now.getTime());

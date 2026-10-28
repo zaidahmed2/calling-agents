@@ -56,6 +56,7 @@ export default async function ContactDetailPage({ params, searchParams }: { para
   let callbacks: CallbackRow[] = [];
   let callCount = 0;
   let agentName = contact.assignedUserId ? "Assigned agent" : "Unassigned";
+  let assignedAgentNames: string[] = [];
   let activeAgents: Array<{ id: string; email: string }> = [];
   let historyAvailable = false;
   try {
@@ -64,7 +65,11 @@ export default async function ContactDetailPage({ params, searchParams }: { para
     const [callResult, callbackResult, agentResult] = await Promise.all([
       crm.from("calls").select("id, agent_id, provider_call_id, current_state, requested_at, answered_at, ended_at, verified_duration_seconds, outcome", { count: "exact" }).eq("company_id", session.companyId).eq("internal_contact_id", id).order("requested_at", { ascending: false }).range((callsPage - 1) * pageSize, callsPage * pageSize - 1),
       crm.from("callbacks").select("id, due_at, timezone, status, completed_at").eq("company_id", session.companyId).eq("internal_contact_id", id).order("due_at", { ascending: false }).limit(50),
-      contact.assignedUserId ? supabase.from("profiles").select("normalized_email").eq("id", contact.assignedUserId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      contact.assignedAgentIds?.length
+        ? supabase.from("profiles").select("id, normalized_email").in("id", contact.assignedAgentIds)
+        : contact.assignedUserId
+          ? supabase.from("profiles").select("id, normalized_email").eq("id", contact.assignedUserId)
+          : Promise.resolve({ data: [], error: null }),
     ]);
     if (!callResult.error && !callbackResult.error) {
       calls = callResult.data ?? [];
@@ -77,7 +82,8 @@ export default async function ContactDetailPage({ params, searchParams }: { para
         if (!dispositionResult.error) dispositions = (dispositionResult.data ?? []) as DispositionRow[];
       }
     }
-    if (session.role === "admin" && agentResult.data?.normalized_email) agentName = agentResult.data.normalized_email;
+    assignedAgentNames = (agentResult.data ?? []).map((agent) => agent.normalized_email);
+    if (session.role === "admin" && assignedAgentNames.length) agentName = assignedAgentNames.join(", ");
     if (session.role === "admin") activeAgents = (await listActiveAgentProfiles()).map((agent) => ({ id: agent.id, email: agent.email }));
   } catch {
     historyAvailable = false;
@@ -99,7 +105,7 @@ export default async function ContactDetailPage({ params, searchParams }: { para
         <div className={styles.profileTop}><span className={styles.profileAvatar}>{displayedContactName.slice(0, 1).toUpperCase()}</span><div><span className={styles.eyebrow}>CONTACT</span><h2>{displayedContactName}</h2>{session.role === "admin" || agentCanSee.has("status") ? <StatusBadge tone={contact.isOpen ? "success" : contact.status ? "neutral" : "warning"}>{contact.status ?? "Unknown status"}</StatusBadge> : null}</div></div>
         {session.role === "agent" ? <div className={styles.agentContactInfo}>{agentCanSee.has("phone") ? <div><small>PHONE</small><AgentPhoneReveal contactId={contact.id} contactName={displayedContactName} maskedPhone={contact.maskedPhone} /></div> : null}{agentDetails.map((field) => <div key={field.id}><small>{field.label}</small><span>{field.value}</span></div>)}</div> : <div className={styles.infoGrid}><div><small>PHONE</small><a href={contact.phone ? `tel:${contact.phone}` : undefined}><Phone size={13} /> {contact.phone ?? "Not available"}</a></div><div><small>EMAIL</small><span>{contact.email ?? "Not available"}</span></div><div><small>ASSIGNED AGENT</small><span><UserRound size={13} /> {agentName}</span></div><div><small>CONTACT ID</small><span className={styles.mono}>{contact.id}</span></div><div><small>SUBJECT</small><span>{contact.subject ?? "Not set"}</span></div></div>}
         {session.role === "agent" && agentCanSee.has("phone") ? <AgentCallWorkflow contactId={contact.id} contactName={displayedContactName} /> : null}
-        {session.role === "admin" ? <ContactEditor contact={{ id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, status: contact.status, subject: contact.subject, notes: contact.notes, assignedAgentId: contact.assignedAgentId }} agents={activeAgents} /> : null}
+        {session.role === "admin" ? <ContactEditor contact={{ id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, status: contact.status, subject: contact.subject, notes: contact.notes, assignedAgentId: contact.assignedAgentId, assignedAgentIds: contact.assignedAgentIds }} agents={activeAgents} /> : null}
       </section>
       <section className={styles.profilePanel} id="call-history">
         <header className={styles.panelHeader}><div><span className={styles.eyebrow}>CALL HISTORY</span><h2>Saved calls</h2></div><StatusBadge tone="neutral">{callCount} records</StatusBadge></header>

@@ -3,17 +3,18 @@
 import { useState } from "react";
 import { Pencil, Save, X } from "lucide-react";
 
+import AgentCheckboxGroup from "@/components/agent-checkbox-group";
 import styles from "@/app/contacts/[id]/contact-profile.module.css";
 
 export default function ContactEditor({ contact, agents }: {
-  contact: { id: string; name: string; phone: string | null; email?: string; status: string | null; subject?: string; notes?: string | null; assignedAgentId: string | null };
+  contact: { id: string; name: string; phone: string | null; email?: string; status: string | null; subject?: string; notes?: string | null; assignedAgentId: string | null; assignedAgentIds?: string[] };
   agents: Array<{ id: string; email: string }>;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [form, setForm] = useState({ name: contact.name, phone: contact.phone ?? "", email: contact.email ?? "", status: contact.status ?? "open", subject: contact.subject ?? "", notes: contact.notes ?? "", assignedAgentId: contact.assignedAgentId ?? "" });
+  const [form, setForm] = useState({ name: contact.name, phone: contact.phone ?? "", email: contact.email ?? "", status: contact.status ?? "open", subject: contact.subject ?? "", notes: contact.notes ?? "", assignedAgentIds: contact.assignedAgentIds ?? (contact.assignedAgentId ? [contact.assignedAgentId] : []) });
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,7 +50,7 @@ export default function ContactEditor({ contact, agents }: {
       <label>Email<input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
       <label>Status<input required maxLength={80} value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} /></label>
       <label>Subject<input value={form.subject} onChange={(event) => setForm((current) => ({ ...current, subject: event.target.value }))} /></label>
-      <label>Assigned agent<select value={form.assignedAgentId} onChange={(event) => setForm((current) => ({ ...current, assignedAgentId: event.target.value }))}><option value="">Unassigned</option>{agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.email}</option>)}</select></label>
+      <AgentCheckboxGroup agents={agents} selectedIds={form.assignedAgentIds} onChange={(ids) => setForm((current) => ({ ...current, assignedAgentIds: ids }))} />
       <label className={styles.editorNotes}>Notes<textarea rows={4} maxLength={5000} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></label>
     </div>
     {error ? <p className={styles.editorError} role="alert">{error}</p> : null}

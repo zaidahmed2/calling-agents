@@ -65,7 +65,7 @@ export async function GET(request: Request) {
 
     if (type === "contacts") {
       const rows = await readAll((from, to) => crm.from("contacts")
-        .select("id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, custom_fields, created_at, updated_at")
+        .select("id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, assigned_agent_ids, custom_fields, created_at, updated_at")
         .eq("company_id", session.companyId!).order("created_at", { ascending: false }).range(from, to));
       const agents = await listCompanyAgentProfiles(session.companyId);
       const agentNames = new Map(agents.map((agent) => [agent.id, agent.email]));
@@ -79,7 +79,7 @@ export async function GET(request: Request) {
         { label: "Subject", value: (row) => row.subject },
         { label: "Notes", value: (row) => row.notes },
         { label: "Lead source", value: (row) => row.lead_source },
-        { label: "Assigned agent", value: (row) => row.assigned_agent_id ? agentNames.get(row.assigned_agent_id) ?? row.assigned_agent_id : "" },
+        { label: "Assigned agents", value: (row) => (row.assigned_agent_ids ?? (row.assigned_agent_id ? [row.assigned_agent_id] : [])).map((id: string) => agentNames.get(id) ?? id).join(", ") },
         { label: "Custom fields", value: (row) => row.custom_fields },
         { label: "Created at", value: (row) => row.created_at },
         { label: "Updated at", value: (row) => row.updated_at },
@@ -199,13 +199,13 @@ export async function GET(request: Request) {
       const agents = await listCompanyAgentProfiles(session.companyId);
       const ids = agents.map((agent) => agent.id);
       const [contacts, calls, callbacks, sessions] = ids.length ? await Promise.all([
-        readAll((from, to) => crm.from("contacts").select("assigned_agent_id").eq("company_id", session.companyId!).eq("status", "open").in("assigned_agent_id", ids).range(from, to)),
+        readAll((from, to) => crm.from("contacts").select("assigned_agent_id, assigned_agent_ids").eq("company_id", session.companyId!).eq("status", "open").range(from, to)),
         readAll((from, to) => crm.from("calls").select("agent_id").eq("company_id", session.companyId!).in("agent_id", ids).range(from, to)),
         readAll((from, to) => crm.from("callbacks").select("agent_id").eq("company_id", session.companyId!).in("status", ["scheduled", "due", "missed"]).in("agent_id", ids).range(from, to)),
         readAll((from, to) => central.from("work_sessions").select("agent_id").eq("company_id", session.companyId!).in("agent_id", ids).in("state", ["active", "paused"]).range(from, to)),
       ]) : [[], [], [], []];
-      const countFor = (rows: Array<{ assigned_agent_id?: string | null; agent_id?: string }>, id: string) =>
-        rows.filter((row) => (row.assigned_agent_id ?? row.agent_id) === id).length;
+      const countFor = (rows: Array<{ assigned_agent_id?: string | null; assigned_agent_ids?: string[]; agent_id?: string }>, id: string) =>
+        rows.filter((row) => row.agent_id === id || (row.assigned_agent_ids ?? (row.assigned_agent_id ? [row.assigned_agent_id] : [])).includes(id)).length;
       return responseCsv("agents", agents.map((agent) => ({
         name: agent.name,
         email: agent.email,

@@ -6,6 +6,7 @@ export type GhlContact = {
   subject?: string;
   status: string | null;
   assignedUserId: string | null;
+  assignedAgentIds?: string[];
   isOpen: boolean;
   phone: string | null;
   maskedPhone: string;

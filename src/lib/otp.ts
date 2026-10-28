@@ -28,7 +28,7 @@ export function otpRequestErrorMessage(error: unknown): string {
     return "Too many OTP requests. Wait a few minutes before requesting another code.";
   }
 
-  return "We could not request a code. Check that Supabase Email OTP is enabled and that this user already exists in Supabase Auth, then try again.";
+  return "You are not authorized to log in to this system. Contact your administrator if you believe this is a mistake.";
 }
 
 export function otpVerificationErrorMessage(error: unknown): string {
@@ -41,5 +41,5 @@ export function otpVerificationErrorMessage(error: unknown): string {
     return "This code has expired. Request a new code and use the latest email.";
   }
 
-  return "Supabase did not accept this code. Use the newest code for this exact email, check the configured OTP length, and request a new code if needed.";
+  return "You are not authorized to log in to this system. Contact your administrator if you believe this is a mistake.";
 }

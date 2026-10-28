@@ -17,6 +17,7 @@ type ContactRow = {
   notes: string | null;
   lead_source: string | null;
   assigned_agent_id: string | null;
+  assigned_agent_ids: string[];
   custom_fields: Record<string, unknown>;
   updated_at: string;
 };
@@ -44,6 +45,7 @@ export function toCrmContact(row: ContactRow): CrmContact {
     subject: row.subject ?? undefined,
     status: row.status,
     assignedUserId: row.assigned_agent_id,
+    assignedAgentIds: row.assigned_agent_ids ?? (row.assigned_agent_id ? [row.assigned_agent_id] : []),
     isOpen: row.status.trim().toLowerCase() === "open",
     phone: row.phone,
     maskedPhone: maskPhone(row.phone),
@@ -60,7 +62,7 @@ export async function listCompanyContacts({ companyId, offset = 0, limit = 25 }:
   const start = Math.max(0, offset);
   const size = Math.min(Math.max(limit, 1), 100);
   const { data, error, count } = await supabase.from("contacts")
-    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, custom_fields, updated_at", { count: "exact" })
+    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, assigned_agent_ids, custom_fields, updated_at", { count: "exact" })
     .eq("company_id", companyId)
     .order("updated_at", { ascending: false })
     .range(start, start + size - 1);
@@ -77,7 +79,7 @@ export async function getCompanyContact(contactId: string, companyId: string): P
   if (!contactId || !companyId) return null;
   const { client: supabase } = await createCompanyCrmClient(companyId);
   const { data, error } = await supabase.from("contacts")
-    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, custom_fields, updated_at")
+    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, assigned_agent_ids, custom_fields, updated_at")
     .eq("id", contactId)
     .eq("company_id", companyId)
     .maybeSingle();
@@ -88,10 +90,10 @@ export async function getOpenContactForAgent(contactId: string, companyId: strin
   if (!contactId || !companyId || !agentId) return null;
   const { client: supabase } = await createCompanyCrmClient(companyId);
   const { data, error } = await supabase.from("contacts")
-    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, custom_fields, updated_at")
+    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, assigned_agent_ids, custom_fields, updated_at")
     .eq("id", contactId)
     .eq("company_id", companyId)
-    .eq("assigned_agent_id", agentId)
+    .contains("assigned_agent_ids", [agentId])
     .ilike("status", "open")
     .maybeSingle();
   return error || !data ? null : toCrmContact(data as ContactRow);
@@ -104,9 +106,9 @@ export async function listContactsForAgent({ companyId, agentId, offset = 0, lim
   const start = Math.max(0, offset);
   const size = Math.min(Math.max(limit, 1), 100);
   const { data, error, count } = await supabase.from("contacts")
-    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, custom_fields, updated_at", { count: "exact" })
+    .select("id, company_id, first_name, last_name, phone, email, status, subject, notes, lead_source, assigned_agent_id, assigned_agent_ids, custom_fields, updated_at", { count: "exact" })
     .eq("company_id", companyId)
-    .eq("assigned_agent_id", agentId)
+    .contains("assigned_agent_ids", [agentId])
     .ilike("status", "open")
     .order("updated_at", { ascending: false })
     .range(start, start + size - 1);

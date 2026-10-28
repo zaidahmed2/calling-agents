@@ -24,7 +24,7 @@ describe("company database URL validation", () => {
   });
 
   it("pins the tenant database readiness check to the shipped schema version", () => {
-    expect(TENANT_SCHEMA_VERSION).toBe("20261021_000002");
+    expect(TENANT_SCHEMA_VERSION).toBe("20261029_000003");
   });
 });
 
@@ -43,6 +43,23 @@ describe("encrypted database credentials", () => {
 
     expect(encrypted).not.toContain(credentials.projectUrl);
     expect(encrypted).not.toContain(credentials.serviceRoleKey);
+    expect(decryptDatabaseCredentials(encrypted)).toEqual(credentials);
+  });
+
+  it("encrypts and restores an optional company-specific Management API token", async () => {
+    vi.stubEnv("INTEGRATION_ENCRYPTION_KEY", Buffer.alloc(32, 6).toString("base64"));
+    vi.resetModules();
+    const { decryptDatabaseCredentials, encryptDatabaseCredentials } = await import("@/lib/database-secrets");
+    const token = "sbp_management_token_secret";
+    const credentials = {
+      projectUrl: "https://sample-ref.supabase.co",
+      publishableKey: "sb_publishable_test",
+      serviceRoleKey: "private-service-key",
+      managementApiToken: token,
+    };
+    const encrypted = encryptDatabaseCredentials(credentials);
+
+    expect(encrypted).not.toContain(token);
     expect(decryptDatabaseCredentials(encrypted)).toEqual(credentials);
   });
 

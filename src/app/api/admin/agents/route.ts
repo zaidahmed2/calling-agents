@@ -24,12 +24,18 @@ export async function GET() {
       const supabase = await createSupabaseServerClient();
       const { client: crm } = await createCompanyCrmClient(session.companyId);
       const [contacts, calls, callbacks, sessions] = await Promise.all([
-        crm.from("contacts").select("assigned_agent_id").eq("company_id", session.companyId).eq("status", "open").in("assigned_agent_id", ids),
+        crm.from("contacts").select("assigned_agent_id, assigned_agent_ids").eq("company_id", session.companyId).eq("status", "open"),
         crm.from("calls").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids),
         crm.from("callbacks").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids).in("status", ["scheduled", "due", "missed"]),
         supabase.from("work_sessions").select("agent_id").eq("company_id", session.companyId).in("agent_id", ids).in("state", ["active", "paused"]),
       ]);
-      for (const row of contacts.data ?? []) if (row.assigned_agent_id) stats.get(row.assigned_agent_id)!.openContacts += 1;
+      for (const row of contacts.data ?? []) {
+        const assignedAgentIds = row.assigned_agent_ids ?? (row.assigned_agent_id ? [row.assigned_agent_id] : []);
+        for (const agentId of assignedAgentIds) {
+          const agentStats = stats.get(agentId);
+          if (agentStats) agentStats.openContacts += 1;
+        }
+      }
       for (const row of calls.data ?? []) stats.get(row.agent_id)!.calls += 1;
       for (const row of callbacks.data ?? []) stats.get(row.agent_id)!.callbacks += 1;
       for (const row of sessions.data ?? []) stats.get(row.agent_id)!.activeSession = true;

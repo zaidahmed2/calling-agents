@@ -18,10 +18,12 @@ describe("OTP helpers", () => {
   it("reports request throttling without exposing provider error details", () => {
     expect(otpRequestErrorMessage({ status: 429 })).toMatch(/too many OTP requests/i);
     expect(otpRequestErrorMessage({ message: "secret provider response" })).not.toContain("secret provider response");
+    expect(otpRequestErrorMessage({ message: "user not found in auth" })).toBe("You are not authorized to log in to this system. Contact your administrator if you believe this is a mistake.");
   });
 
   it("distinguishes expired codes and verification throttling", () => {
     expect(otpVerificationErrorMessage({ code: "otp_expired" })).toMatch(/expired/i);
     expect(otpVerificationErrorMessage({ status: 429 })).toMatch(/too many verification attempts/i);
+    expect(otpVerificationErrorMessage({ message: "user not found in auth" })).toBe("You are not authorized to log in to this system. Contact your administrator if you believe this is a mistake.");
   });
 });

@@ -19,11 +19,12 @@ async function authorizeContact(contactId: string, companyId: string, actorId: s
   if (!contactIdPattern.test(contactId)) return null;
   const client = await getCommentsClient(companyId, isImpersonating);
   const { data, error } = await client.from("contacts")
-    .select("id, assigned_agent_id")
+    .select("id, assigned_agent_id, assigned_agent_ids")
     .eq("id", contactId)
     .eq("company_id", companyId)
     .maybeSingle();
-  if (error || !data || (role === "agent" && data.assigned_agent_id !== actorId)) return null;
+  const assignedAgentIds = data?.assigned_agent_ids ?? (data?.assigned_agent_id ? [data.assigned_agent_id] : []);
+  if (error || !data || (role === "agent" && !assignedAgentIds.includes(actorId))) return null;
   return client;
 }
 
