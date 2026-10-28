@@ -7,9 +7,8 @@ import { type CallStage } from "@/lib/ghl";
 import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
 import { getSession } from "@/lib/session";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { auditAgentPhoneReveal, recordAgentWorkActivity } from "@/lib/work-session-activity";
+import { recordAgentWorkActivity } from "@/lib/work-session-activity";
 import { createCompanyCrmClient } from "@/lib/company-database";
-import { getAgentContactFields } from "@/lib/agent-contact-fields";
 
 export const dynamic = "force-dynamic";
 const callLimiter = createRateLimiter({ limit: Math.max(1, env.callInitRateLimitPerMinute), windowMs: 60_000 });
@@ -27,12 +26,8 @@ export async function POST(request: Request) {
   if (action === "start") {
     if (!isWithinRateLimit(callLimiter, session.id)) return NextResponse.json({ error: "New calls are temporarily limited. Try again shortly." }, { status: 429 });
     const contactId = typeof body.contactId === "string" ? body.contactId : "";
-    if (!(await getAgentContactFields(session.companyId, session.id)).includes("phone")) {
-      return NextResponse.json({ error: "Your administrator has not enabled phone-number access for you." }, { status: 403 });
-    }
     const contact = await getOpenContactForAgent(contactId, session.companyId, session.id);
     if (!contact?.phone) return NextResponse.json({ error: "This contact is not available for a call." }, { status: 404 });
-    if (!await auditAgentPhoneReveal(contact.id, session.companyId, session.id)) return NextResponse.json({ error: "Call access could not be verified." }, { status: 503 });
 
     const webRtc = await getCompanyCallingConfig(session.companyId, session.id, contact.phone);
     if (!webRtc.ok) return NextResponse.json({ error: webRtc.reason }, { status: 503 });

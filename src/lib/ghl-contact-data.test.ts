@@ -26,7 +26,7 @@ describe("GHL contact response parsing", () => {
     expect(contact.status).toBe("Open");
     expect(contact.assignedUserId).toBe("ghl-user-1");
     expect(contact.isOpen).toBe(true);
-    expect(contact.maskedPhone).toBe("••••••5678");
+    expect(contact.maskedPhone).toBe("**********");
   });
 
   it("uses only the configured Open value and never a top-level status fallback", () => {
@@ -110,7 +110,7 @@ describe("GHL contact response parsing", () => {
     const source = normalizeGhlContact({ id: "agent-safe", name: "Ava Contact", email: "private@example.com", phone: "0400123456", city: "Newtown", assignedTo: "agent-1", customFields: [{ name: "Status", value: "Open" }] }, "status-id");
     const agentView = toAgentContact(source);
 
-    expect(agentView).toEqual({ id: "agent-safe", name: "Ava Contact", phoneVisible: true, maskedPhone: "••••••3456", status: null, details: [], lastComment: null, callStatus: "unknown" });
+    expect(agentView).toEqual({ id: "agent-safe", name: "Ava Contact", phoneVisible: true, maskedPhone: "**********", status: null, details: [], lastComment: null, callStatus: "unknown" });
     expect(agentView).not.toHaveProperty("email");
     expect(agentView).not.toHaveProperty("phone");
     expect(JSON.stringify(agentView)).not.toContain("private@example.com");
@@ -140,7 +140,12 @@ describe("GHL contact response parsing", () => {
   });
   it("does not reveal a full value when the phone contains four or fewer digits", () => {
     const source = normalizeGhlContact({ id: "short", phone: "1234" }, "");
-    expect(source.maskedPhone).toBe("••••");
+    expect(source.maskedPhone).toBe("****");
     expect(toAgentContact(source).maskedPhone).not.toContain("1234");
+  });
+
+  it("preserves only the Australian country code and masks every subscriber digit", () => {
+    const contact = normalizeGhlContact({ id: "au-masked", phone: "+61416265431" }, "");
+    expect(contact.maskedPhone).toBe("+61*********");
   });
 });

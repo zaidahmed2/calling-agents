@@ -23,6 +23,7 @@ type Agent = {
   trunkId: string | null;
   trunkUsername: string | null;
   trunkCallerId: string | null;
+  outboundUriTemplate?: string | null;
 };
 type Data = { callerIds: Array<{ id: string; number: string; nickname: string | null }>; trunks: Trunk[]; agents: Agent[] };
 
@@ -49,7 +50,7 @@ export default function CrazytelTrunkManager() {
   const [manualTrunkId, setManualTrunkId] = useState("");
   const [manualUsername, setManualUsername] = useState("");
   const [manualCallerId, setManualCallerId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [agentIds, setAgentIds] = useState<string[]>([]);
   const [password, setPassword] = useState("");
   const [testing, setTesting] = useState(false);
   const [verified, setVerified] = useState(false);
@@ -96,7 +97,7 @@ export default function CrazytelTrunkManager() {
       manual: true,
     }
     : data.trunks.find((trunk) => trunk.id === selectedTrunkId);
-  const currentAgent = data.agents.find((agent) => agent.trunkId === selectedTrunkId);
+  const currentAgents = data.agents.filter((agent) => agent.trunkId === selectedTrunkId);
   const assignedCallerId = selectedTrunk?.callerIdNumber;
   const callerIdVerified = Boolean(assignedCallerId && data.callerIds.some((callerId) => samePhoneNumber(callerId.number, assignedCallerId)));
   function openAssignment(trunk: Trunk) {
@@ -105,9 +106,9 @@ export default function CrazytelTrunkManager() {
     setManualTrunkId(trunk.id);
     setManualUsername(trunk.manual ? trunk.username : "");
     setManualCallerId(trunk.manual ? trunk.callerIdNumber ?? "" : "");
-    setAgentId(data.agents.find((agent) => agent.trunkId === trunk.id)?.id ?? "");
+    setAgentIds(data.agents.filter((agent) => agent.trunkId === trunk.id).map((agent) => agent.id));
     setPassword("");
-    setVerified(false);
+    setVerified(data.agents.some((agent) => agent.trunkId === trunk.id));
     setError("");
     setNotice("");
   }
@@ -119,7 +120,7 @@ export default function CrazytelTrunkManager() {
     setManualTrunkId(id);
     setManualUsername("");
     setManualCallerId("");
-    setAgentId("");
+    setAgentIds([]);
     setPassword("");
     setVerified(false);
     setError("");
@@ -169,15 +170,16 @@ export default function CrazytelTrunkManager() {
   }
 
   async function assignTrunk() {
-    if (!selectedTrunk?.username || !agentId || !verified || !callerIdVerified) return;
+    if (!selectedTrunk?.username || !agentIds.length || !verified || !callerIdVerified) return;
     setSaving(true);
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`/api/admin/agents/${encodeURIComponent(agentId)}/crazytel`, {
+      const response = await fetch("/api/admin/integrations/crazytel/assignments", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          agentIds,
           trunkId: selectedTrunk.id,
           username: selectedTrunk.username,
           callerId: selectedTrunk.callerIdNumber,
@@ -187,8 +189,9 @@ export default function CrazytelTrunkManager() {
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Hybrid trunk could not be assigned.");
-      setNotice("Hybrid trunk verified and assigned to the agent.");
+      setNotice(`Hybrid trunk assigned to ${agentIds.length} ${agentIds.length === 1 ? "agent" : "agents"}.`);
       setSelectedTrunkId("");
+      setAgentIds([]);
       await load();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Hybrid trunk could not be assigned.");
@@ -216,7 +219,7 @@ export default function CrazytelTrunkManager() {
     {notice ? <p className={styles.inlineResult + " " + styles.success} role="status">{notice}</p> : null}
     {loading ? <p className={styles.mappingHint}>Loading Crazytel trunks...</p> : data.trunks.length ? <div className={styles.trunkList}>
       {data.trunks.map((trunk) => {
-        const assigned = data.agents.find((agent) => agent.trunkId === trunk.id);
+        const assigned = data.agents.filter((agent) => agent.trunkId === trunk.id);
         const cliVerified = Boolean(trunk.callerIdNumber && data.callerIds.some((callerId) => samePhoneNumber(callerId.number, trunk.callerIdNumber ?? "")));
         return <article className={styles.trunkRow} key={trunk.id}>
           <div className={styles.trunkIdentity}>
@@ -226,11 +229,11 @@ export default function CrazytelTrunkManager() {
           <span className={trunk.enabled ? styles.verifiedPill : styles.trunkDisabled}>{trunk.manual ? "Manual" : trunk.enabled ? "Enabled" : "Disabled"}</span>
           <span className={cliVerified ? styles.verifiedPill : styles.trunkDisabled}>{!trunk.callerIdNumber ? "No CLI" : cliVerified ? "CLI verified" : "CLI not verified"}</span>
           <div className={styles.trunkAssignment}>
-            <small>Assigned agent</small>
-            <strong>{assigned?.name ?? "Not assigned"}</strong>
+            <small>{assigned.length === 1 ? "Assigned agent" : "Assigned agents"}</small>
+            <strong title={assigned.map((agent) => agent.name).join(", ")}>{assigned.length ? assigned.map((agent) => agent.name).join(", ") : "Not assigned"}</strong>
           </div>
           <button type="button" className={styles.assignCallerId} onClick={() => openAssignment(trunk)} disabled={!trunk.enabled || !trunk.callerIdNumber || !cliVerified}>
-            <Plus size={13} />{assigned ? "Configure / change" : trunk.manual ? "Configure" : "Verify & assign"}
+            <Plus size={13} />{assigned.length ? "Configure / change" : trunk.manual ? "Configure" : "Verify & assign"}
           </button>
         </article>;
       })}
@@ -252,30 +255,39 @@ export default function CrazytelTrunkManager() {
             </label>
             {manualCallerId ? <p className={callerIdVerified ? styles.inlineResult + " " + styles.success : styles.warningText}>{callerIdVerified ? "Caller ID is verified on the Crazytel account." : "Number not found in the verified caller ID list. Verify it in MyAccount and refresh."}</p> : null}
           </> : null}
-          <label>Assign to agent
-            <select value={agentId} onChange={(event) => { setAgentId(event.target.value); setVerified(false); }}>
-              <option value="">Select an agent</option>
-              {data.agents.map((agent) => <option
-                key={agent.id}
-                value={agent.id}
-                disabled={Boolean(agent.trunkId && agent.trunkId !== selectedTrunk.id) || Boolean(manualMode && agent.trunkUsername?.toLowerCase() === manualUsername.trim().toLowerCase() && agent.id !== agentId)}
-              >{agent.name}{agent.trunkId && agent.trunkId !== selectedTrunk.id ? " · already has a trunk" : ""}</option>)}
-            </select>
-          </label>
-          {currentAgent ? <p className={styles.mappingHint}>This trunk is currently assigned to {currentAgent.name}. Re-enter and verify its WebRTC password to update the assignment.</p> : null}
-          <label>WebRTC password <span>(one-time password under “WebRTC softphone”)</span>
-            <input type="password" autoComplete="new-password" value={password} onChange={(event) => { setPassword(event.target.value); setVerified(false); }} placeholder={currentAgent ? "Re-enter to verify or replace saved password" : "Paste WebRTC password"} />
-          </label>
-          <p className={styles.mappingHint}>Do not use the desk-phone SIP password here. It is different from the WebRTC password and is not used for browser calling.</p>
+          <div className={styles.agentSelection}>
+            <strong>Assign to agents <small>Select one or more agents for this trunk.</small></strong>
+            {data.agents.map((agent) => {
+              const checked = agentIds.includes(agent.id);
+              const movingFrom = agent.trunkId && agent.trunkId !== selectedTrunk.id;
+              return <label key={agent.id} className={styles.agentOption}>
+                <input type="checkbox" checked={checked} onChange={(event) => {
+                  setAgentIds((current) => event.target.checked
+                    ? [...current, agent.id]
+                    : current.filter((id) => id !== agent.id));
+                }} />
+                <span><strong>{agent.name}</strong><small>{agent.email}{movingFrom ? ` · currently assigned to ${agent.trunkUsername}` : ""}</small></span>
+              </label>;
+            })}
+            {!data.agents.length ? <p className={styles.mappingHint}>Add agents to this company before assigning a trunk.</p> : null}
+          </div>
+          {currentAgents.length ? <p className={styles.mappingHint}>Currently assigned to {currentAgents.map((agent) => agent.name).join(", ")}. Select the complete set of agents that should use this trunk.</p> : null}
+          {currentAgents.length ? <p className={styles.mappingHint}>This trunk is already verified. Its saved WebRTC password will be reused for all selected agents; assignment changes will not ask for it again.</p> : <>
+            <label>WebRTC password <span>(one-time password under “WebRTC softphone”)</span>
+              <input type="password" autoComplete="new-password" value={password} onChange={(event) => { setPassword(event.target.value); setVerified(false); }} placeholder="Paste WebRTC password" />
+            </label>
+            <p className={styles.mappingHint}>Do not use the desk-phone SIP password here. It is different from the WebRTC password and is not used for browser calling.</p>
+          </>}
+          <p className={styles.mappingHint}>All selected agents will use this same WebRTC login and caller ID. Confirm your Crazytel account supports the required simultaneous registrations and calls.</p>
           <p className={styles.mappingHint}>Phone-number dialing is configured automatically using Crazytel&apos;s confirmed format. When an agent calls a contact, the app converts the contact number (for example, 0422 436 270 → 61422436270) and builds the SIP address. WebRTC server: <code>wss://hybrid.sip.crazytel.net.au:8443</code>. Registration checks login only; it does not place a call.</p>
           {error ? <p className={styles.inlineResult + " " + styles.failure} role="alert">{error}</p> : null}
           {notice ? <p className={styles.inlineResult + " " + styles.success} role="status">{notice}</p> : null}
           <div className={styles.actionRow}>
-            <button type="button" className={styles.secondaryButton} onClick={() => void testRegistration()} disabled={testing || saving || !selectedTrunk.enabled || !selectedTrunk.username || !selectedTrunk.callerIdNumber || !password || !agentId || !callerIdVerified}>
+            {currentAgents.length ? <span className={styles.verifiedPill}>Saved login verified</span> : <button type="button" className={styles.secondaryButton} onClick={() => void testRegistration()} disabled={testing || saving || !selectedTrunk.enabled || !selectedTrunk.username || !selectedTrunk.callerIdNumber || !password || !agentIds.length || !callerIdVerified}>
               <RefreshCw size={14} />{testing ? "Testing registration..." : verified ? "Registration verified" : "Test WebRTC registration"}
-            </button>
-            <button type="button" className={styles.testButton} onClick={() => void assignTrunk()} disabled={saving || testing || !verified || !agentId || !callerIdVerified}>
-              <Check size={14} />{saving ? "Assigning..." : "Assign trunk"}
+            </button>}
+            <button type="button" className={styles.testButton} onClick={() => void assignTrunk()} disabled={saving || testing || !verified || !agentIds.length || !callerIdVerified}>
+              <Check size={14} />{saving ? "Assigning..." : `Assign to ${agentIds.length || "agents"}`}
             </button>
           </div>
         </div>

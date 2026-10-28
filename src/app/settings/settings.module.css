@@ -180,6 +180,14 @@
 .removeMapping { width:30px;height:32px;display:grid;place-items:center;border:1px solid transparent;border-radius:5px;color:#8491a1;background:transparent;cursor:pointer; }
 .removeMapping:hover { border-color:#f0d4d4;color:#ad3944;background:#fff6f6; }
 .mappingHint { margin:0 0 10px;padding:9px 11px;border:1px solid #e7edf5;border-radius:6px;color:#65758a;background:#f8fafc;font-size:9px;line-height:1.5; }
+.agentSelection { display:grid;gap:6px;max-height:230px;overflow:auto;padding:9px;border:1px solid #e7edf5;border-radius:7px;background:#fbfcfe; }
+.agentSelection>strong { display:grid;gap:3px;color:#536276;font-size:10px; }
+.agentSelection>strong small { color:var(--muted);font-size:9px;font-weight:500; }
+.agentOption { display:flex!important;align-items:center;gap:9px!important;padding:8px;border:1px solid #edf0f4;border-radius:6px;background:#fff;cursor:pointer; }
+.agentOption input[type="checkbox"] { width:15px;height:15px;flex:0 0 15px;margin:0;accent-color:var(--primary); }
+.agentOption>span { min-width:0;display:grid;gap:3px; }
+.agentOption>span strong { overflow:hidden;color:var(--ink);font-size:10px;text-overflow:ellipsis;white-space:nowrap; }
+.agentOption>span small { overflow:hidden;color:var(--muted);font-size:8px;font-weight:500;text-overflow:ellipsis;white-space:nowrap; }
 .mappingFooter { display:flex;justify-content:space-between;align-items:center;gap:9px;margin-top:10px; }
 .iconButton { width:32px; padding:0; color:#8f3737; }
 .syncControls { display:grid; gap:10px; padding-top:12px; border-top:1px solid var(--line); }

@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, Check, Clock3, Eye, EyeOff, Phone, RefreshCw } from "lucide-react";
+import { CalendarClock, Check, Clock3, Phone, PhoneCall, RefreshCw } from "lucide-react";
 
 import { Button, ConfirmDialog, EmptyState, Pagination, SearchField, StatusBadge } from "@/components/ui";
-import ProtectedPhone from "@/components/protected-phone";
+import AgentCallWorkflow, { startManualCall, unlockCallAudio, type InitialManualCall } from "@/app/contacts/[id]/agent-call-workflow";
 import styles from "@/app/callbacks/callback-list.module.css";
 
 export type CallbackCardData = {
   id: string;
   contactId: string;
+  callContactId?: string;
   name: string;
   contactDetails: string[];
   phone: string | null;
@@ -31,8 +32,8 @@ export default function CallbackList({ callbacks, page, pageSize, total }: { cal
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [visibleNumber, setVisibleNumber] = useState<{ callbackId: string; phone: string } | null>(null);
-  const [revealingId, setRevealingId] = useState<string | null>(null);
+  const [activeCall, setActiveCall] = useState<{ contactId: string; contactName: string; initialCall: InitialManualCall } | null>(null);
+  const [startingCallId, setStartingCallId] = useState<string | null>(null);
 
   async function update(id: string, body: Record<string, string>) {
     setPending(id);
@@ -50,7 +51,6 @@ export default function CallbackList({ callbacks, page, pageSize, total }: { cal
       setEditing(null);
       setDateTime("");
       setConfirming(null);
-      setVisibleNumber((current) => current?.callbackId === id ? null : current);
       setMessage(body.action === "complete" ? "Callback completed." : "Callback rescheduled.");
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Callback action failed.");
@@ -59,24 +59,21 @@ export default function CallbackList({ callbacks, page, pageSize, total }: { cal
     }
   }
 
-  async function revealCallbackNumber(item: CallbackCardData) {
-    if (visibleNumber?.callbackId === item.id) {
-      setVisibleNumber(null);
-      return;
-    }
-    setVisibleNumber(null);
-    setRevealingId(item.id);
+  async function startCallbackCall(item: CallbackCardData) {
+    if (!item.callContactId || activeCall || startingCallId) return;
+    setStartingCallId(item.id);
     setError("");
     try {
-      const response = await fetch(`/api/callbacks/${encodeURIComponent(item.id)}`, { method: "POST", cache: "no-store" });
-      const result = await response.json() as { phone?: string; error?: string };
-      if (!response.ok || !result.phone) throw new Error(result.error ?? "Could not view this number.");
-      setVisibleNumber({ callbackId: item.id, phone: result.phone });
-      window.setTimeout(() => setVisibleNumber((current) => current?.callbackId === item.id ? null : current), 30_000);
-    } catch (numberError) {
-      setError(numberError instanceof Error ? numberError.message : "Could not view this number.");
+      unlockCallAudio();
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser does not support microphone calling.");
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      permissionStream.getTracks().forEach((track) => track.stop());
+      const initialCall = await startManualCall(item.callContactId);
+      setActiveCall({ contactId: item.callContactId, contactName: item.name, initialCall });
+    } catch (callError) {
+      setError(callError instanceof Error ? callError.message : "Call could not be started.");
     } finally {
-      setRevealingId(null);
+      setStartingCallId(null);
     }
   }
 
@@ -92,11 +89,12 @@ export default function CallbackList({ callbacks, page, pageSize, total }: { cal
   return <div className={styles.list}>
     {message ? <div className={styles.success} role="status">{message}</div> : null}
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
-    <div className={styles.callbackToolbar}><SearchField value={search} onChange={(event) => { setSearch(event.target.value); setVisibleNumber(null); }} placeholder={items[0]?.isAgent ? "Search visible contact details" : "Search this page"} aria-label={items[0]?.isAgent ? "Search callbacks by visible contact details" : "Search callbacks on this page"} /><label>Due status<select value={dueFilter} onChange={(event) => { setDueFilter(event.target.value); setVisibleNumber(null); }}><option value="all">All active</option><option value="Overdue">Overdue</option><option value="Due today">Due today</option><option value="Upcoming">Upcoming</option></select></label><span>{filteredItems.length} shown · {total} total</span></div>
+    <div className={styles.callbackToolbar}><SearchField value={search} onChange={(event) => setSearch(event.target.value)} placeholder={items[0]?.isAgent ? "Search visible contact details" : "Search this page"} aria-label={items[0]?.isAgent ? "Search callbacks by visible contact details" : "Search callbacks on this page"} /><label>Due status<select value={dueFilter} onChange={(event) => setDueFilter(event.target.value)}><option value="all">All active</option><option value="Overdue">Overdue</option><option value="Due today">Due today</option><option value="Upcoming">Upcoming</option></select></label><span>{filteredItems.length} shown · {total} total</span></div>
+    {activeCall ? <AgentCallWorkflow key={activeCall.initialCall.call.call_id} contactId={activeCall.contactId} contactName={activeCall.contactName} initialCall={activeCall.initialCall} onCallSaved={(savedMessage) => { setMessage(savedMessage); setActiveCall(null); }} /> : null}
     {filteredItems.map((item) => <article className={styles.card} key={item.id}>
       <div className={styles.dateBlock}><CalendarClock size={17} /><strong>{new Date(item.dueAt).toLocaleDateString([], { month: "short", day: "numeric" })}</strong><span>{new Date(item.dueAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>
-      <div className={styles.details}><div className={styles.nameLine}><h2>{item.name}</h2><StatusBadge tone={item.dueLabel === "Overdue" ? "danger" : item.dueLabel === "Due today" ? "warning" : "neutral"}>{item.dueLabel}</StatusBadge></div>{item.isAgent ? item.contactDetails.map((detail, index) => <p key={`${item.id}-detail-${index}`}>{detail}</p>) : <p>Contact {item.contactId}</p>}{item.notes ? <blockquote>{item.notes}</blockquote> : null}<div className={styles.contactMeta}><span><Clock3 size={13} /> {item.status}</span>{item.isAgent ? item.phone ? <span><span>{visibleNumber?.callbackId === item.id ? <ProtectedPhone phone={visibleNumber.phone} /> : item.phone}</span><button type="button" className={styles.numberReveal} disabled={revealingId !== null} onClick={() => void revealCallbackNumber(item)} aria-label={visibleNumber?.callbackId === item.id ? `Hide number for ${item.name}` : `View number for ${item.name}`}>{visibleNumber?.callbackId === item.id ? <EyeOff size={13} /> : <Eye size={13} />}{revealingId === item.id ? "Loading" : visibleNumber?.callbackId === item.id ? "Hide" : "View"}</button></span> : null : item.phone ? <a href={`tel:${item.phone}`}><Phone size={13} /> {item.phone}</a> : <span>Phone unavailable</span>}</div></div>
-      <div className={styles.actions}><Button variant="primary" disabled={pending === item.id} onClick={() => setConfirming(item)}><Check size={14} /> Complete callback</Button><Button variant="secondary" disabled={pending !== null} onClick={() => { setEditing(editing === item.id ? null : item.id); setError(""); }}><RefreshCw size={14} /> Reschedule</Button>
+      <div className={styles.details}><div className={styles.nameLine}><h2>{item.name}</h2><StatusBadge tone={item.dueLabel === "Overdue" ? "danger" : item.dueLabel === "Due today" ? "warning" : "neutral"}>{item.dueLabel}</StatusBadge></div>{item.isAgent ? item.contactDetails.map((detail, index) => <p key={`${item.id}-detail-${index}`}>{detail}</p>) : <p>Contact {item.contactId}</p>}{item.notes ? <blockquote>{item.notes}</blockquote> : null}<div className={styles.contactMeta}><span><Clock3 size={13} /> {item.status}</span>{item.isAgent ? item.phone ? <span>{item.phone}</span> : null : item.phone ? <a href={`tel:${item.phone}`}><Phone size={13} /> {item.phone}</a> : <span>Phone unavailable</span>}</div></div>
+      <div className={styles.actions}>{item.isAgent && item.callContactId ? <Button variant="primary" disabled={Boolean(activeCall) || startingCallId !== null} onClick={() => void startCallbackCall(item)}><PhoneCall size={14} /> {startingCallId === item.id ? "Starting…" : "Call"}</Button> : null}<Button variant="primary" disabled={pending === item.id || Boolean(activeCall)} onClick={() => setConfirming(item)}><Check size={14} /> Complete callback</Button><Button variant="secondary" disabled={pending !== null || Boolean(activeCall)} onClick={() => { setEditing(editing === item.id ? null : item.id); setError(""); }}><RefreshCw size={14} /> Reschedule</Button>
         {editing === item.id ? <form className={styles.reschedule} onSubmit={(event) => { event.preventDefault(); if (dateTime) void update(item.id, { action: "reschedule", dueAt: new Date(dateTime).toISOString(), timezone: item.timezone }); }}><label>New date and time<input type="datetime-local" required value={dateTime} onChange={(event) => setDateTime(event.target.value)} /></label><Button type="submit" disabled={pending === item.id || !dateTime}>{pending === item.id ? "Saving…" : "Save time"}</Button></form> : null}
       </div>
     </article>)}

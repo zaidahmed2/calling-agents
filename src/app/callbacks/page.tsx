@@ -78,6 +78,7 @@ export default async function CallbackQueuePage({ searchParams }: { searchParams
         return {
           id: row.id,
           contactId: session.role === "admin" ? row.internal_contact_id ?? "" : "",
+          callContactId: session.role === "agent" ? row.internal_contact_id ?? undefined : undefined,
           name: contact?.name && (session.role === "admin" || agentFields.has("name")) ? contact.name : session.role === "admin" ? `Contact ${row.contact_id}` : "Contact",
           contactDetails,
           phone: contact ? session.role === "admin" ? contact.phone : agentFields.has("phone") ? contact.maskedPhone : null : null,

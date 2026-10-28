@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, startTransition } from "react";
-import { ArrowUpRight, Eye, EyeOff, MessageSquare, PhoneCall, Send, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowUpRight, MessageSquare, PhoneCall, Send, X } from "lucide-react";
 
 import { EmptyState, Pagination, SearchField, StatusBadge } from "@/components/ui";
-import ProtectedPhone from "@/components/protected-phone";
-import AgentCallWorkflow, { startManualCall, type InitialManualCall } from "@/app/contacts/[id]/agent-call-workflow";
+import AgentCallWorkflow, { startManualCall, unlockCallAudio, type InitialManualCall } from "@/app/contacts/[id]/agent-call-workflow";
 import type { AgentContact } from "@/lib/ghl";
 import styles from "@/app/open-queue/agent-contact-list.module.css";
 
@@ -17,9 +16,6 @@ export default function AgentContactList({ contacts, previousHref, nextHref, sou
   const [callFilter, setCallFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [visiblePhone, setVisiblePhone] = useState<{ contactId: string; value: string } | null>(null);
-  const [revealingId, setRevealingId] = useState<string | null>(null);
-  const [revealError, setRevealError] = useState("");
   const [activeCall, setActiveCall] = useState<{ contact: AgentContact; initialCall: InitialManualCall } | null>(null);
   const [startingCallId, setStartingCallId] = useState<string | null>(null);
   const [callError, setCallError] = useState("");
@@ -54,35 +50,13 @@ export default function AgentContactList({ contacts, previousHref, nextHref, sou
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  async function togglePhone(contact: AgentContact) {
-    if (visiblePhone?.contactId === contact.id) {
-      setVisiblePhone(null);
-      setRevealError("");
-      return;
-    }
-    setRevealingId(contact.id);
-    setRevealError("");
-    setVisiblePhone(null);
-    try {
-      const response = await fetch(`/api/contacts/${encodeURIComponent(contact.id)}/reveal`, { method: "POST", cache: "no-store" });
-      const result = await response.json() as { phone?: string; error?: string };
-      if (!response.ok || !result.phone) throw new Error(result.error ?? "Could not view this number.");
-      const revealedPhone = result.phone;
-      startTransition(() => setVisiblePhone({ contactId: contact.id, value: revealedPhone }));
-      window.setTimeout(() => setVisiblePhone((current) => current?.contactId === contact.id ? null : current), 30_000);
-    } catch (error) {
-      setRevealError(error instanceof Error ? error.message : "Could not view this number.");
-    } finally {
-      setRevealingId(null);
-    }
-  }
-
   async function startContactCall(contact: AgentContact) {
-    if (visiblePhone?.contactId !== contact.id || activeCall || startingCallId) return;
+    if (activeCall || startingCallId) return;
     setStartingCallId(contact.id);
     setCallError("");
     setCallNotice("");
     try {
+      unlockCallAudio();
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser does not support microphone calling.");
       const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       permissionStream.getTracks().forEach((track) => track.stop());
@@ -143,19 +117,17 @@ export default function AgentContactList({ contacts, previousHref, nextHref, sou
   }
 
   const selectedContact = contacts.find((contact) => contact.id === commentsContactId) ?? null;
-  const showPhone = contacts.some((contact) => contact.phoneVisible);
   const showStatus = contacts.some((contact) => contact.status !== null);
 
   return (
     <section className={styles.panel}>
-      <header className={styles.toolbar}><div><strong>My assigned contacts</strong><small>{filtered.length} matching contacts in the loaded results</small></div><SearchField value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setVisiblePhone(null); }} placeholder="Search contacts" aria-label="Search visible contact details" /></header>
+      <header className={styles.toolbar}><div><strong>My assigned contacts</strong><small>{filtered.length} matching contacts in the loaded results</small></div><SearchField value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search contacts" aria-label="Search visible contact details" /></header>
       <div className={styles.callFilters}><label>Call result <select value={callFilter} onChange={(event) => { setCallFilter(event.target.value); setPage(1); }}><option value="all">All call results</option><option value="picked">Picked</option><option value="not-picked">Not picked</option><option value="not-called">Not called</option><option value="in-progress">In progress</option></select></label><span>{filtered.length} matching</span></div>
-      {revealError ? <p className={styles.revealError} role="alert">{revealError}</p> : null}
-      {callError ? <p className={styles.revealError} role="alert">{callError}</p> : null}
+      {callError ? <p className={styles.callError} role="alert">{callError}</p> : null}
       {callNotice ? <p className={styles.callNotice} role="status">{callNotice}</p> : null}
       {activeCall ? <AgentCallWorkflow key={activeCall.initialCall.call.call_id} contactId={activeCall.contact.id} contactName={activeCall.contact.name} initialCall={activeCall.initialCall} onCallSaved={(message) => { setCallNotice(message); setActiveCall(null); }} /> : null}
-      <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>DETAILS</th>{showPhone ? <th>PHONE</th> : null}{showStatus ? <th>STATUS</th> : null}<th>CALL RESULT</th><th>LATEST COMMENT</th><th>ACTIONS</th></tr></thead><tbody>
-        {visible.map((contact) => <tr key={contact.id}><td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} className={styles.name}>{contact.name}</Link></td><td><div className={styles.detailList}>{contact.details.length ? contact.details.map((field) => <span key={field.id}><small>{field.label}</small>{field.value}</span>) : <span className={styles.muted}>No additional details</span>}</div></td>{showPhone ? <td className={styles.phone}>{contact.phoneVisible ? <><span>{visiblePhone?.contactId === contact.id ? <ProtectedPhone phone={visiblePhone.value} /> : contact.maskedPhone ?? "•••• ••••"}</span><button type="button" className={styles.revealButton} disabled={revealingId !== null || Boolean(activeCall) || Boolean(startingCallId)} onClick={() => void togglePhone(contact)} aria-label={visiblePhone?.contactId === contact.id ? `Hide number for ${contact.name}` : `View number for ${contact.name}`} title={visiblePhone?.contactId === contact.id ? "Hide number" : "View number"}>{visiblePhone?.contactId === contact.id ? <EyeOff size={14} /> : <Eye size={14} />}{revealingId === contact.id ? "Loading" : visiblePhone?.contactId === contact.id ? "Hide" : "View"}</button><button type="button" className={styles.callLink} onClick={() => void startContactCall(contact)} disabled={Boolean(activeCall) || startingCallId !== null} aria-label={`Start call to ${contact.name}`} title="Start in-app demo call"><PhoneCall size={14} />{startingCallId === contact.id ? "Starting" : "Call"}</button></> : null}</td> : null}{showStatus ? <td>{contact.status ? <StatusBadge tone="success">{contact.status}</StatusBadge> : null}</td> : null}<td><StatusBadge tone={contact.callStatus === "picked" ? "success" : contact.callStatus === "not-picked" ? "warning" : "neutral"}>{contact.callStatus === "not-called" ? "Not called" : contact.callStatus === "in-progress" ? "In progress" : contact.callStatus === "unknown" ? "Unknown" : contact.callStatus}</StatusBadge></td><td className={styles.latestComment}>{latestComments[contact.id] ? latestComments[contact.id] : <span className={styles.muted}>No comments yet</span>}</td><td className={styles.actions}><button type="button" className={styles.commentButton} disabled={commentsSaving} onClick={() => void toggleComments(contact)} aria-expanded={commentsContactId === contact.id} aria-label={`Open comments for ${contact.name}`}><MessageSquare size={14} />Comments</button><Link className={styles.openLink} href={`/contacts/${encodeURIComponent(contact.id)}`} aria-label={`Open ${contact.name}`}><ArrowUpRight size={15} /></Link></td></tr>)}
+      <div className={styles.tableScroll}><table><thead><tr><th>CONTACT</th><th>DETAILS</th><th>PHONE</th>{showStatus ? <th>STATUS</th> : null}<th>CALL RESULT</th><th>LATEST COMMENT</th><th>ACTIONS</th></tr></thead><tbody>
+        {visible.map((contact) => <tr key={contact.id}><td><Link href={`/contacts/${encodeURIComponent(contact.id)}`} className={styles.name}>{contact.name}</Link></td><td><div className={styles.detailList}>{contact.details.length ? contact.details.map((field) => <span key={field.id}><small>{field.label}</small>{field.value}</span>) : <span className={styles.muted}>No additional details</span>}</div></td><td className={styles.phone}><span>{contact.phoneVisible ? contact.maskedPhone ?? "Private" : "Private"}</span><button type="button" className={styles.callLink} onClick={() => void startContactCall(contact)} disabled={Boolean(activeCall) || startingCallId !== null} aria-label={`Start call to ${contact.name}`} title="Call contact"><PhoneCall size={14} />{startingCallId === contact.id ? "Starting" : "Call"}</button></td>{showStatus ? <td>{contact.status ? <StatusBadge tone="success">{contact.status}</StatusBadge> : null}</td> : null}<td><StatusBadge tone={contact.callStatus === "picked" ? "success" : contact.callStatus === "not-picked" ? "warning" : "neutral"}>{contact.callStatus === "not-called" ? "Not called" : contact.callStatus === "in-progress" ? "In progress" : contact.callStatus === "unknown" ? "Unknown" : contact.callStatus}</StatusBadge></td><td className={styles.latestComment}>{latestComments[contact.id] ? latestComments[contact.id] : <span className={styles.muted}>No comments yet</span>}</td><td className={styles.actions}><button type="button" className={styles.commentButton} disabled={commentsSaving} onClick={() => void toggleComments(contact)} aria-expanded={commentsContactId === contact.id} aria-label={`Open comments for ${contact.name}`}><MessageSquare size={14} />Comments</button><Link className={styles.openLink} href={`/contacts/${encodeURIComponent(contact.id)}`} aria-label={`Open ${contact.name}`}><ArrowUpRight size={15} /></Link></td></tr>)}
       </tbody></table>
       {!visible.length ? <EmptyState title={search || callFilter !== "all" ? "No matching contacts" : nextHref ? "No assigned contacts on this page" : "You're all caught up"} detail={search || callFilter !== "all" ? "Try a different search or call-result filter." : "Only contacts assigned to you and marked Open appear here."} /> : null}</div>
       {filtered.length ? <Pagination page={page} pageCount={pageCount} total={filtered.length} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} /> : null}

@@ -121,7 +121,7 @@ export default function AgentCrazytelAssignment({ agentId }: { agentId: string }
             setRegistrationVerified(false);
           }}>
             <option value="">Select an enabled trunk</option>
-            {trunks.map((trunk) => <option key={trunk.id} value={trunk.id} disabled={trunk.assignedToOtherAgent}>{trunk.username}{trunk.caller_id_number ? ` · ${trunk.caller_id_number}` : ""}{trunk.description ? ` · ${trunk.description}` : ""}{trunk.assignedToOtherAgent ? " · assigned to another agent" : ""}</option>)}
+            {trunks.map((trunk) => <option key={trunk.id} value={trunk.id}>{trunk.username}{trunk.caller_id_number ? ` · ${trunk.caller_id_number}` : ""}{trunk.description ? ` · ${trunk.description}` : ""}{trunk.assignedToOtherAgent ? " · shared with another agent" : ""}</option>)}
           </select>
         </label>
         <label className={styles.callingAssignmentField}>Dedicated WebRTC password

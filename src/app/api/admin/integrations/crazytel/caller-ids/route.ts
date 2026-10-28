@@ -99,20 +99,21 @@ export async function GET() {
       outboundUriTemplate: row.crazytel_outbound_uri_template,
     }]));
     const providerTrunkIds = new Set(trunks.map((trunk) => trunk.id));
-    const manualTrunks = assignmentRows.flatMap((row): CrazytelTrunk[] => {
-      if (!row.crazytel_trunk_id || !row.crazytel_trunk_username || providerTrunkIds.has(row.crazytel_trunk_id)) return [];
-      return [{
+    const manualTrunkMap = new Map<string, CrazytelTrunk>();
+    for (const row of assignmentRows) {
+      if (!row.crazytel_trunk_id || !row.crazytel_trunk_username || providerTrunkIds.has(row.crazytel_trunk_id)) continue;
+      if (!manualTrunkMap.has(row.crazytel_trunk_id)) manualTrunkMap.set(row.crazytel_trunk_id, {
         id: row.crazytel_trunk_id,
         username: row.crazytel_trunk_username,
         enabled: true,
         callerIdNumber: row.crazytel_caller_id,
         description: "Manually added Hybrid trunk",
         manual: true,
-      }];
-    });
+      });
+    }
     return NextResponse.json({
       callerIds,
-      trunks: [...trunks, ...manualTrunks],
+      trunks: [...trunks, ...manualTrunkMap.values()],
       agents: agents.map((agent) => {
         const assignment = assignedIds.get(agent.id);
         return {

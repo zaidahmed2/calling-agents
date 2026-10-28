@@ -11,6 +11,7 @@ export type CrazytelWebRtcConfig = {
   turnUsername?: string;
   turnPassword?: string;
   outboundCallerId?: string;
+  recordingNoticeEnabled: boolean;
 };
 
 import { buildCrazytelCallerIdHeaders, buildCrazytelOutboundTarget, CRAZYTEL_OUTBOUND_URI_TEMPLATE } from "@/lib/crazytel-utils";
@@ -42,6 +43,7 @@ export function getCrazytelWebRtcConfig(destinationPhone: string): { ok: true; c
       targetUri,
       turnUrls,
       ...(hasTurnCredentials ? { turnUsername: env.crazytelTurnUsername, turnPassword: env.crazytelTurnPassword } : {}),
+      recordingNoticeEnabled: env.crazytelRecordingEnabled,
     },
   };
 }
@@ -94,6 +96,7 @@ export async function getCompanyCrazytelWebRtcConfig(companyId: string, agentId:
       turnUrls: hasTurnCredentials ? ["turn:turn.crazytel.net:3478?transport=udp", "turns:turn.crazytel.net:5349?transport=tcp"] : ["stun:stun.l.google.com:19302"],
       ...(hasTurnCredentials ? { turnUsername, turnPassword } : {}),
       ...(outboundCallerId ? { outboundCallerId } : {}),
+      recordingNoticeEnabled: env.crazytelRecordingEnabled,
     },
   };
 }

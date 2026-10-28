@@ -156,19 +156,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
     const selectedCallerId = verifiedCallerId.number;
     const service = createSupabaseServiceClient();
-    if (manual) {
-      const { data: existingAssignments, error: existingError } = await service.from("company_memberships")
-        .select("profile_id, crazytel_trunk_username")
-        .eq("company_id", session.companyId)
-        .eq("role", "agent");
-      if (existingError) throw new Error("Existing Crazytel trunk assignments could not be checked.");
-      if ((existingAssignments ?? []).some((assignment) =>
-        assignment.profile_id !== id
-        && assignment.crazytel_trunk_username?.toLowerCase() === username.toLowerCase(),
-      )) {
-        return NextResponse.json({ error: "This Crazytel SIP username is already assigned to another agent." }, { status: 409 });
-      }
-    }
     const updates: Record<string, string | null> = {
       crazytel_trunk_id: trunkId,
       crazytel_trunk_username: username,
@@ -179,7 +166,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       ...updates,
     }).eq("profile_id", id).eq("company_id", session.companyId).eq("role", "agent");
     if (error?.code === "42703") return NextResponse.json({ error: "Apply migration 20261023_000023_agent_crazytel_outbound_uri.sql and try again." }, { status: 503 });
-    if (error) return NextResponse.json({ error: "That trunk may already be assigned to another agent, or the assignment could not be saved." }, { status: 409 });
+    if (error) return NextResponse.json({ error: "The assignment could not be saved. Apply the shared-trunk migration if this trunk is assigned to multiple agents." }, { status: 409 });
     await saveCompanyCredentials(session.companyId, "crazytel", { [`agent-${id}-webrtcPassword`]: webrtcPassword });
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

@@ -11,8 +11,16 @@ import styles from "@/app/contacts/[id]/contact-profile.module.css";
 
 type StartedCall = { call_id: string; requested_at: string; ended_at?: string | null; manual_duration_seconds?: number | null };
 type CallStage = "picked" | "not-picked" | "call-later" | "busy" | "interested";
-type TelephonyConfig = { websocketServer: string; sipUri: string; webrtcPassword: string; targetUri: string; turnUrls: string[]; turnUsername?: string; turnPassword?: string; outboundCallerId?: string };
+type TelephonyConfig = { websocketServer: string; sipUri: string; webrtcPassword: string; targetUri: string; turnUrls: string[]; turnUsername?: string; turnPassword?: string; outboundCallerId?: string; recordingNoticeEnabled: boolean };
 export type InitialManualCall = { call: StartedCall; telephony: TelephonyConfig };
+
+let callAudioContext: AudioContext | null = null;
+
+export function unlockCallAudio() {
+  if (typeof window === "undefined" || !window.AudioContext) return;
+  callAudioContext ??= new window.AudioContext();
+  void callAudioContext.resume();
+}
 
 export async function startManualCall(contactId: string): Promise<InitialManualCall> {
   const response = await fetch("/api/calls/manual", {
@@ -64,6 +72,10 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const ringbackOscillatorRef = useRef<OscillatorNode | null>(null);
+  const ringbackGainRef = useRef<GainNode | null>(null);
+  const ringbackTimerRef = useRef<number | null>(null);
+  const recordingNoticeStartedRef = useRef(false);
   const userAgentRef = useRef<UserAgent | null>(null);
   const registererRef = useRef<Registerer | null>(null);
   const inviterRef = useRef<Inviter | null>(null);
@@ -74,7 +86,81 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   const resultStatusRef = useRef<string | null>(null);
   const endCallRef = useRef<(sendBye: boolean) => Promise<void>>(async () => undefined);
 
+  function stopRingback() {
+    if (ringbackTimerRef.current !== null) {
+      window.clearInterval(ringbackTimerRef.current);
+      ringbackTimerRef.current = null;
+    }
+    if (ringbackGainRef.current && callAudioContext) {
+      ringbackGainRef.current.gain.cancelScheduledValues(callAudioContext.currentTime);
+      ringbackGainRef.current.gain.setTargetAtTime(0, callAudioContext.currentTime, 0.02);
+    }
+    const oscillator = ringbackOscillatorRef.current;
+    ringbackOscillatorRef.current = null;
+    ringbackGainRef.current = null;
+    if (oscillator) {
+      try { oscillator.stop(); } catch { /* Oscillator may already be stopped. */ }
+    }
+  }
+
+  function startRingback() {
+    if (endedRef.current || answeredAtRef.current !== null || ringbackOscillatorRef.current) return;
+    unlockCallAudio();
+    if (!callAudioContext) return;
+    const oscillator = callAudioContext.createOscillator();
+    const gain = callAudioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 400;
+    gain.gain.value = 0;
+    oscillator.connect(gain);
+    gain.connect(callAudioContext.destination);
+    oscillator.start();
+    ringbackOscillatorRef.current = oscillator;
+    ringbackGainRef.current = gain;
+
+    const playCadence = () => {
+      if (!callAudioContext || ringbackGainRef.current !== gain || endedRef.current || answeredAtRef.current !== null) return;
+      const startAt = callAudioContext.currentTime + 0.03;
+      gain.gain.cancelScheduledValues(startAt);
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(0.14, startAt + 0.025);
+      gain.gain.setValueAtTime(0.14, startAt + 0.38);
+      gain.gain.linearRampToValueAtTime(0, startAt + 0.42);
+      gain.gain.setValueAtTime(0, startAt + 0.62);
+      gain.gain.linearRampToValueAtTime(0.14, startAt + 0.645);
+      gain.gain.setValueAtTime(0.14, startAt + 1.0);
+      gain.gain.linearRampToValueAtTime(0, startAt + 1.04);
+    };
+    playCadence();
+    ringbackTimerRef.current = window.setInterval(playCadence, 3000);
+  }
+
+  function announceThenRingback(configuration: TelephonyConfig) {
+    if (recordingNoticeStartedRef.current) {
+      startRingback();
+      return;
+    }
+    recordingNoticeStartedRef.current = true;
+    const message = configuration.recordingNoticeEnabled
+      ? "Your call will be recorded."
+      : "Please wait while we connect your call.";
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+      startRingback();
+      if (configuration.recordingNoticeEnabled) setError("Audio notice could not be played. Confirm the recording disclosure before continuing.");
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.onend = startRingback;
+    utterance.onerror = () => {
+      if (configuration.recordingNoticeEnabled) setError("Audio notice could not be played. Confirm the recording disclosure before continuing.");
+      startRingback();
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+
   async function stopTelephony() {
+    stopRingback();
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     const registerer = registererRef.current;
     const userAgent = userAgentRef.current;
     registererRef.current = null;
@@ -85,6 +171,12 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       console.error("Could not stop the Crazytel WebRTC user agent.", stopError);
     });
   }
+
+  const cleanupTelephonyOnUnmount = useEffectEvent(() => {
+    stopRingback();
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    void stopTelephony();
+  });
 
   async function reportProviderCallState(callId: string, providerCallId: string, providerState: "ringing" | "answered") {
     if (endedRef.current) return;
@@ -146,6 +238,8 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     inviterRef.current = inviter;
     inviter.stateChange.addListener((state) => {
       if (state === SessionState.Established) {
+        stopRingback();
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         answeredAtRef.current = Date.now();
         setCallStatus("Connected");
         answeredStatePromiseRef.current = reportProviderCallState(callRecordId, providerCallId, "answered");
@@ -158,6 +252,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
           void audioRef.current.play().catch(() => setError("Call connected. Click the page once if you cannot hear remote audio."));
         }
       } else if (state === SessionState.Terminated && !endedRef.current) {
+        stopRingback();
         if (answeredAtRef.current === null) {
           resultStatusRef.current ??= "Call ended before answer without a SIP rejection response";
           setCallStatus(resultStatusRef.current);
@@ -172,6 +267,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     await inviter.invite({ requestDelegate: {
       onProgress: () => {
         setCallStatus("Ringing");
+        announceThenRingback(configuration);
         void reportProviderCallState(callRecordId, providerCallId, "ringing").catch((stateError: unknown) => {
           if (!endedRef.current) setError(stateError instanceof Error ? stateError.message : "The ringing call could not be linked to its record.");
         });
@@ -242,6 +338,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     setNotice("");
     let startedCall: StartedCall | null = null;
     try {
+      unlockCallAudio();
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("This browser does not support microphone calling.");
       setCallStatus("Requesting microphone access");
       const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -255,6 +352,7 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       answeredStatePromiseRef.current = null;
       reportedProviderStateRef.current = null;
       resultStatusRef.current = null;
+      recordingNoticeStartedRef.current = false;
       setOutcome("not-picked");
       setElapsedSeconds(0);
       await connectAndDial(started.telephony, started.call.call_id);
@@ -323,6 +421,8 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   useEffect(() => {
     endCallRef.current = finishServerCall;
   });
+
+  useEffect(() => () => cleanupTelephonyOnUnmount(), []);
 
   async function finishCall(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

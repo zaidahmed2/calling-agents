@@ -7,7 +7,6 @@ import { getCompanyContact, getOpenContactForAgent } from "@/lib/contacts";
 import { getSession } from "@/lib/session";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import styles from "@/app/contacts/[id]/contact-profile.module.css";
-import AgentPhoneReveal from "@/app/contacts/[id]/agent-phone-reveal";
 import { recordAgentWorkActivity } from "@/lib/work-session-activity";
 import AgentCallWorkflow from "@/app/contacts/[id]/agent-call-workflow";
 import ContactEditor from "@/app/contacts/[id]/contact-editor";
@@ -103,8 +102,8 @@ export default async function ContactDetailPage({ params, searchParams }: { para
     <div className={styles.profileGrid}>
       <section className={styles.profilePanel}>
         <div className={styles.profileTop}><span className={styles.profileAvatar}>{displayedContactName.slice(0, 1).toUpperCase()}</span><div><span className={styles.eyebrow}>CONTACT</span><h2>{displayedContactName}</h2>{session.role === "admin" || agentCanSee.has("status") ? <StatusBadge tone={contact.isOpen ? "success" : contact.status ? "neutral" : "warning"}>{contact.status ?? "Unknown status"}</StatusBadge> : null}</div></div>
-        {session.role === "agent" ? <div className={styles.agentContactInfo}>{agentCanSee.has("phone") ? <div><small>PHONE</small><AgentPhoneReveal contactId={contact.id} contactName={displayedContactName} maskedPhone={contact.maskedPhone} /></div> : null}{agentDetails.map((field) => <div key={field.id}><small>{field.label}</small><span>{field.value}</span></div>)}</div> : <div className={styles.infoGrid}><div><small>PHONE</small><a href={contact.phone ? `tel:${contact.phone}` : undefined}><Phone size={13} /> {contact.phone ?? "Not available"}</a></div><div><small>EMAIL</small><span>{contact.email ?? "Not available"}</span></div><div><small>ASSIGNED AGENT</small><span><UserRound size={13} /> {agentName}</span></div><div><small>CONTACT ID</small><span className={styles.mono}>{contact.id}</span></div><div><small>SUBJECT</small><span>{contact.subject ?? "Not set"}</span></div></div>}
-        {session.role === "agent" && agentCanSee.has("phone") ? <AgentCallWorkflow contactId={contact.id} contactName={displayedContactName} /> : null}
+        {session.role === "agent" ? <div className={styles.agentContactInfo}>{agentCanSee.has("phone") ? <div><small>PHONE</small><span>{contact.maskedPhone}</span></div> : null}{agentDetails.map((field) => <div key={field.id}><small>{field.label}</small><span>{field.value}</span></div>)}</div> : <div className={styles.infoGrid}><div><small>PHONE</small><a href={contact.phone ? `tel:${contact.phone}` : undefined}><Phone size={13} /> {contact.phone ?? "Not available"}</a></div><div><small>EMAIL</small><span>{contact.email ?? "Not available"}</span></div><div><small>ASSIGNED AGENT</small><span><UserRound size={13} /> {agentName}</span></div><div><small>CONTACT ID</small><span className={styles.mono}>{contact.id}</span></div><div><small>SUBJECT</small><span>{contact.subject ?? "Not set"}</span></div></div>}
+        {session.role === "agent" ? <AgentCallWorkflow contactId={contact.id} contactName={displayedContactName} /> : null}
         {session.role === "admin" ? <ContactEditor contact={{ id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, status: contact.status, subject: contact.subject, notes: contact.notes, assignedAgentId: contact.assignedAgentId, assignedAgentIds: contact.assignedAgentIds }} agents={activeAgents} /> : null}
       </section>
       <section className={styles.profilePanel} id="call-history">

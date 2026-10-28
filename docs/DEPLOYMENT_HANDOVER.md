@@ -33,10 +33,13 @@ Required names:
 - `CALL_INIT_RATE_LIMIT_PER_MINUTE`
 - `WEBHOOK_SECRET`
 
+`CRAZYTEL_RECORDING_ENABLED` defaults to `false`. Set it to `true` only after confirming that recording is enabled for the Crazytel account; this controls the spoken recording notice shown to the agent before local ringback.
+
 ## 2. Supabase setup
 
 1. Create or connect the Supabase project.
 2. Apply the versioned migrations under `supabase/migrations`.
+   - Apply `20261029_000027_allow_shared_crazytel_trunks.sql` before assigning one Crazytel trunk to multiple agents.
 3. Enable Row Level Security on all sensitive tables.
 4. Keep the service-role key server-only; do not expose it to the browser.
 5. Verify the auth provider and app role mapping before production sign-in is enabled.
@@ -83,6 +86,7 @@ Before initiating live calls:
 
 - Live GHL contact reads/writes remain intentionally blocked until the actual provider contract is verified.
 - Live Crazytel calling and recording access remain intentionally blocked until account-side evidence is provided.
+- With browser-based SIP calling, the browser receives the outbound SIP target needed to place a call. UI masking prevents casual viewing but cannot keep the full destination number hidden from an agent inspecting browser network or SIP data. Strict number privacy requires server-side call origination or a provider-supported opaque routing alias.
 - The app currently behaves as a secure, audited, staged local shell rather than a production-verified CRM/telephony integration.
 - Real webhook replay and spoofing tests require a real provider account and secret configuration.
 

@@ -83,10 +83,14 @@ function normalizeFieldKey(value: unknown): string {
   return value.trim().replace(/^\{\{\s*|\s*\}\}$/g, "").toLowerCase();
 }
 
-function maskPhone(value: string): string {
-  const digitCount = (value.match(/\d/g) ?? []).length;
-  if (digitCount <= 4) return value.replace(/\d/g, "•");
-  return value.replace(/\d(?=\d{4})/g, "•");
+export function maskPhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  const countryCode = value.trim().startsWith("+")
+    ? digits.startsWith("61") ? "+61" : digits.startsWith("1") ? "+1" : `+${digits.slice(0, 2)}`
+    : "";
+  const hiddenDigits = digits.length - countryCode.replace(/\D/g, "").length;
+  return `${countryCode}${"*".repeat(Math.max(hiddenDigits, 0))}`;
 }
 
 export function normalizeGhlContact(item: Record<string, unknown>, statusFieldId: string, openStatusValue = "Open", statusFieldKey = ""): GhlContact {

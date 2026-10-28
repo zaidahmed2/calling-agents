@@ -1,38 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/session";
-import { getOpenContactForAgent } from "@/lib/contacts";
-import { createRateLimiter, isWithinRateLimit } from "@/lib/rate-limit";
-import { auditAgentPhoneReveal, recordAgentWorkActivity } from "@/lib/work-session-activity";
+import { recordAgentWorkActivity } from "@/lib/work-session-activity";
 import { createCompanyCrmClient } from "@/lib/company-database";
-import { getAgentContactFields } from "@/lib/agent-contact-fields";
 
 export const dynamic = "force-dynamic";
-const revealLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Sign in is required." }, { status: 401 });
-  if (session.role !== "agent" || !session.companyId) return NextResponse.json({ error: "Callback is not available." }, { status: 404 });
-  if (!isWithinRateLimit(revealLimiter, session.id)) return NextResponse.json({ error: "Number views are temporarily limited. Try again shortly." }, { status: 429 });
-
-  const { id } = await params;
-  try {
-    if (!(await getAgentContactFields(session.companyId, session.id)).includes("phone")) {
-      return NextResponse.json({ error: "Your administrator has not enabled phone-number access for you." }, { status: 403 });
-    }
-    const { client: supabase } = await createCompanyCrmClient(session.companyId);
-    const { data: callback, error } = await supabase.from("callbacks").select("contact_id, internal_contact_id, agent_id, status").eq("id", id).maybeSingle();
-    if (error || !callback || callback.agent_id !== session.id || !["scheduled", "due", "missed"].includes(callback.status)) {
-      return NextResponse.json({ error: "Callback is not available." }, { status: 404 });
-    }
-    const contact = callback.internal_contact_id ? await getOpenContactForAgent(callback.internal_contact_id, session.companyId, session.id) : null;
-    if (!contact?.phone) return NextResponse.json({ error: "Callback contact is not available." }, { status: 404 });
-    if (!await auditAgentPhoneReveal(contact.id, session.companyId, session.id)) return NextResponse.json({ error: "Number access could not be verified. Try again or contact an administrator." }, { status: 503 });
-    return NextResponse.json({ phone: contact.phone }, { headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" } });
-  } catch {
-    return NextResponse.json({ error: "Could not view this number right now." }, { status: 503 });
-  }
+  return NextResponse.json({ error: "Phone-number viewing is disabled. Start a call from the callback instead." }, { status: 404 });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

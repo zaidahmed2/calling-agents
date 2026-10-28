@@ -1,5 +1,5 @@
 import type { GhlContact } from "@/lib/ghl-contact-data";
-import { toAgentContact } from "@/lib/ghl-contact-data";
+import { maskPhone as maskGhlPhone, toAgentContact } from "@/lib/ghl-contact-data";
 import { createCompanyCrmClient } from "@/lib/company-database";
 import { getAgentContactFields } from "@/lib/agent-contact-fields";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -29,12 +29,6 @@ export type CrmContact = GhlContact & {
   customFields: Record<string, unknown>;
 };
 
-function maskPhone(value: string | null): string {
-  if (!value) return "•••• ••••";
-  const digits = (value.match(/\d/g) ?? []).length;
-  return digits <= 4 ? value.replace(/\d/g, "•") : value.replace(/\d(?=\d{4})/g, "•");
-}
-
 export function toCrmContact(row: ContactRow): CrmContact {
   const suburbValue = row.custom_fields?.suburb;
   return {
@@ -48,7 +42,7 @@ export function toCrmContact(row: ContactRow): CrmContact {
     assignedAgentIds: row.assigned_agent_ids ?? (row.assigned_agent_id ? [row.assigned_agent_id] : []),
     isOpen: row.status.trim().toLowerCase() === "open",
     phone: row.phone,
-    maskedPhone: maskPhone(row.phone),
+    maskedPhone: row.phone ? maskGhlPhone(row.phone) : "•••• ••••",
     lastActivityAt: row.updated_at,
     notes: row.notes,
     leadSource: row.lead_source,
