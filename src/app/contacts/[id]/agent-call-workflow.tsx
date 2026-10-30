@@ -11,7 +11,7 @@ import styles from "@/app/contacts/[id]/contact-profile.module.css";
 
 type StartedCall = { call_id: string; requested_at: string; ended_at?: string | null; manual_duration_seconds?: number | null };
 type CallStage = "picked" | "not-picked" | "call-later" | "busy" | "interested";
-type TelephonyConfig = { websocketServer: string; sipUri: string; webrtcPassword: string; targetUri: string; turnUrls: string[]; turnUsername?: string; turnPassword?: string; outboundCallerId?: string; recordingNoticeEnabled: boolean };
+type TelephonyConfig = { websocketServer: string; sipUri: string; webrtcPassword: string; targetUri: string; turnUrls: string[]; turnUsername?: string; turnPassword?: string; outboundCallerId?: string; recordingNoticeEnabled: boolean; voiceAlertAudio?: string };
 export type InitialManualCall = { call: StartedCall; telephony: TelephonyConfig };
 
 let callAudioContext: AudioContext | null = null;
@@ -76,6 +76,12 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
   const ringbackGainRef = useRef<GainNode | null>(null);
   const ringbackTimerRef = useRef<number | null>(null);
   const recordingNoticeStartedRef = useRef(false);
+  const voiceAlertMicGainRef = useRef<GainNode | null>(null);
+  const voiceAlertMicSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const voiceAlertMicStreamRef = useRef<MediaStream | null>(null);
+  const voiceAlertMixedStreamRef = useRef<MediaStream | null>(null);
+  const voiceAlertDestinationNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const voiceAlertPlaybackRef = useRef<AudioBufferSourceNode | null>(null);
   const userAgentRef = useRef<UserAgent | null>(null);
   const registererRef = useRef<Registerer | null>(null);
   const inviterRef = useRef<Inviter | null>(null);
@@ -158,9 +164,77 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
     window.speechSynthesis.speak(utterance);
   }
 
+  function restoreVoiceAlertAudio() {
+    const context = callAudioContext;
+    const micGain = voiceAlertMicGainRef.current;
+    if (context && micGain) {
+      micGain.gain.cancelScheduledValues(context.currentTime);
+      micGain.gain.setTargetAtTime(1, context.currentTime, 0.04);
+    }
+    if (audioRef.current) {
+      audioRef.current.muted = false;
+      void audioRef.current.play().catch(() => setError("Call connected. Click the page once if you cannot hear remote audio."));
+    }
+  }
+
+  async function playVoiceAlert(audioBase64: string) {
+    const context = callAudioContext;
+    const destination = voiceAlertMixedStreamRef.current;
+    if (!context || !destination || !voiceAlertMicGainRef.current) {
+      restoreVoiceAlertAudio();
+      setError("The Voice Alert audio path could not start. Two-way call audio has been restored.");
+      return;
+    }
+
+    try {
+      await context.resume();
+      const binary = window.atob(audioBase64);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const wav = new ArrayBuffer(bytes.length);
+      new Uint8Array(wav).set(bytes);
+      const buffer = await context.decodeAudioData(wav);
+      if (endedRef.current) return;
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      const output = voiceAlertDestinationNodeRef.current;
+      if (!output) throw new Error("The Voice Alert output stream is unavailable.");
+      source.connect(output);
+      voiceAlertPlaybackRef.current = source;
+      source.onended = () => {
+        if (voiceAlertPlaybackRef.current !== source) return;
+        voiceAlertPlaybackRef.current = null;
+        restoreVoiceAlertAudio();
+        setCallStatus("Connected");
+      };
+      setCallStatus("Playing Voice Alert");
+      source.start();
+    } catch (playbackError) {
+      console.error("Agent Voice Alert playback failed.", playbackError);
+      voiceAlertPlaybackRef.current = null;
+      restoreVoiceAlertAudio();
+      setError("The Voice Alert could not be played. Two-way call audio has been restored.");
+    }
+  }
+
   async function stopTelephony() {
     stopRingback();
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    const playback = voiceAlertPlaybackRef.current;
+    voiceAlertPlaybackRef.current = null;
+    if (playback) {
+      playback.onended = null;
+      try { playback.stop(); } catch { /* Playback may already have ended. */ }
+    }
+    if (audioRef.current) audioRef.current.muted = false;
+    voiceAlertMicGainRef.current?.disconnect();
+    voiceAlertMicSourceRef.current?.disconnect();
+    voiceAlertMicStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceAlertMixedStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceAlertMicGainRef.current = null;
+    voiceAlertMicSourceRef.current = null;
+    voiceAlertMicStreamRef.current = null;
+    voiceAlertMixedStreamRef.current = null;
+    voiceAlertDestinationNodeRef.current = null;
     const registerer = registererRef.current;
     const userAgent = userAgentRef.current;
     registererRef.current = null;
@@ -212,12 +286,35 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
       urls,
       ...(configuration.turnUsername && configuration.turnPassword ? { username: configuration.turnUsername, credential: configuration.turnPassword } : {}),
     }));
+    const sessionDescriptionHandlerFactory = configuration.voiceAlertAudio
+      ? Web.defaultSessionDescriptionHandlerFactory(async (constraints, sessionDescriptionHandler) => {
+        const mediaStream = await Web.defaultMediaStreamFactory()(constraints, sessionDescriptionHandler);
+        if (!constraints.audio) return mediaStream;
+        const context = callAudioContext;
+        const microphoneTrack = mediaStream.getAudioTracks()[0];
+        if (!context || !microphoneTrack) throw new Error("Microphone audio could not be isolated for the Voice Alert.");
+        const microphoneStream = new MediaStream([microphoneTrack]);
+        const microphoneSource = context.createMediaStreamSource(microphoneStream);
+        const microphoneGain = context.createGain();
+        const destination = context.createMediaStreamDestination();
+        microphoneGain.gain.value = 0;
+        microphoneSource.connect(microphoneGain);
+        microphoneGain.connect(destination);
+        voiceAlertMicGainRef.current = microphoneGain;
+        voiceAlertMicSourceRef.current = microphoneSource;
+        voiceAlertMicStreamRef.current = mediaStream;
+        voiceAlertMixedStreamRef.current = destination.stream;
+        voiceAlertDestinationNodeRef.current = destination;
+        return new MediaStream([...destination.stream.getAudioTracks(), ...mediaStream.getVideoTracks()]);
+      })
+      : undefined;
     const userAgent = new UserAgent({
       uri: sipUri,
       authorizationUsername: userPart,
       authorizationPassword: configuration.webrtcPassword,
       transportOptions: { server: configuration.websocketServer },
       sessionDescriptionHandlerFactoryOptions: { peerConnectionConfiguration: { iceServers } },
+      ...(sessionDescriptionHandlerFactory ? { sessionDescriptionHandlerFactory } : {}),
       logBuiltinEnabled: false,
       logConfiguration: false,
       userAgentString: "Terraverse CRM WebRTC",
@@ -248,8 +345,13 @@ export default function AgentCallWorkflow({ contactId, contactName, initialCall,
         });
         const handler = inviter.sessionDescriptionHandler as Web.SessionDescriptionHandler | undefined;
         if (audioRef.current && handler) {
+          audioRef.current.muted = Boolean(configuration.voiceAlertAudio);
           audioRef.current.srcObject = handler.remoteMediaStream;
-          void audioRef.current.play().catch(() => setError("Call connected. Click the page once if you cannot hear remote audio."));
+          if (configuration.voiceAlertAudio) {
+            void playVoiceAlert(configuration.voiceAlertAudio);
+          } else {
+            void audioRef.current.play().catch(() => setError("Call connected. Click the page once if you cannot hear remote audio."));
+          }
         }
       } else if (state === SessionState.Terminated && !endedRef.current) {
         stopRingback();

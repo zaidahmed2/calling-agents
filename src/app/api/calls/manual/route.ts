@@ -9,6 +9,8 @@ import { getSession } from "@/lib/session";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAgentWorkActivity } from "@/lib/work-session-activity";
 import { createCompanyCrmClient } from "@/lib/company-database";
+import { synthesizeGeminiTts } from "@/lib/gemini-tts";
+import { getCompanyIntegration } from "@/lib/integration-secrets";
 
 export const dynamic = "force-dynamic";
 const callLimiter = createRateLimiter({ limit: Math.max(1, env.callInitRateLimitPerMinute), windowMs: 60_000 });
@@ -32,16 +34,57 @@ export async function POST(request: Request) {
     const webRtc = await getCompanyCallingConfig(session.companyId, session.id, contact.phone);
     if (!webRtc.ok) return NextResponse.json({ error: webRtc.reason }, { status: 503 });
 
+    const supabase = createSupabaseServiceClient();
+    let voiceAlert: { voice_alert_enabled: boolean; voice_alert_text: string | null } | null;
+    try {
+      const { data, error } = await supabase.from("company_memberships")
+        .select("voice_alert_enabled, voice_alert_text")
+        .eq("profile_id", session.id).eq("company_id", session.companyId).eq("role", "agent").maybeSingle();
+      if (error) {
+        console.error("Agent Voice Alert settings could not be loaded for call setup.", {
+          code: error.code,
+          message: error.message,
+        });
+        return NextResponse.json({ error: "Voice Alert settings are unavailable. Apply migration 20261029_000028_agent_voice_alert.sql." }, { status: 503 });
+      }
+      voiceAlert = data;
+    } catch (error) {
+      console.error("Agent Voice Alert settings could not be loaded for call setup.", error);
+      return NextResponse.json({ error: "Company Voice Alert settings could not be loaded. Contact your administrator." }, { status: 503 });
+    }
+
+    let voiceAlertAudio: string | undefined;
+    const voiceAlertText = voiceAlert?.voice_alert_enabled && typeof voiceAlert.voice_alert_text === "string"
+      ? voiceAlert.voice_alert_text.trim()
+      : "";
+    if (voiceAlertText) {
+      let geminiApiKey: string;
+      try {
+        const geminiIntegration = await getCompanyIntegration(session.companyId, "gemini");
+        geminiApiKey = geminiIntegration.credentials.apiKey ?? "";
+      } catch (error) {
+        console.error("Company Gemini settings could not be loaded for call setup.", error);
+        return NextResponse.json({ error: "Company Voice Alert settings could not be loaded. Contact your administrator." }, { status: 503 });
+      }
+      if (!geminiApiKey) return NextResponse.json({ error: "Voice Alert is enabled, but this company has not configured a Gemini API key in Settings & Integrations." }, { status: 503 });
+      try {
+        voiceAlertAudio = await synthesizeGeminiTts(voiceAlertText, geminiApiKey);
+      } catch (error) {
+        console.error("Gemini could not prepare the agent Voice Alert.", error);
+        return NextResponse.json({ error: "Voice Alert could not be prepared. The call was not started; contact your administrator." }, { status: 503 });
+      }
+    }
+
     try {
       const { client: crm, mode } = await createCompanyCrmClient(session.companyId);
-      const rpcClient = mode === "shared" ? createSupabaseServiceClient() : crm;
+      const rpcClient = mode === "shared" ? supabase : crm;
       const args = mode === "shared"
         ? { p_agent_id: session.id, p_contact_id: contact.id }
         : { p_company_id: session.companyId, p_agent_id: session.id, p_contact_id: contact.id };
       const { data, error } = await rpcClient.rpc("start_company_agent_call", args);
       if (error) return NextResponse.json({ error: "Calling is not ready yet. Contact your administrator." }, { status: 503 });
       await recordAgentWorkActivity();
-      return NextResponse.json({ call: data, telephony: webRtc.config }, { headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" } });
+      return NextResponse.json({ call: data, telephony: { ...webRtc.config, ...(voiceAlertAudio ? { voiceAlertAudio } : {}) } }, { headers: { "Cache-Control": "no-store, private", Pragma: "no-cache" } });
     } catch {
       return NextResponse.json({ error: "Could not start this call log." }, { status: 503 });
     }

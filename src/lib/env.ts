@@ -22,7 +22,6 @@ export const env = {
   supabaseManagementApiToken: read("SUPABASE_MANAGEMENT_API_TOKEN") ?? "",
   supabaseJwtSecret: read("SUPABASE_JWT_SECRET") ?? "",
   integrationEncryptionKey: read("INTEGRATION_ENCRYPTION_KEY") ?? "",
-
   ghlPrivateIntegrationKey: read("GHL_PRIVATE_INTEGRATION_KEY") ?? "",
   ghlWebhookSecret: read("GHL_WEBHOOK_SECRET") ?? "",
   ghlLocationId: read("GHL_LOCATION_ID") ?? "",

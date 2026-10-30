@@ -8,7 +8,7 @@ import { saveCompanyCredentials, type IntegrationProvider } from "@/lib/integrat
 export const dynamic = "force-dynamic";
 
 function isProvider(value: unknown): value is IntegrationProvider {
-  return value === "ghl" || value === "crazytel";
+  return value === "ghl" || value === "crazytel" || value === "gemini";
 }
 
 export async function GET() {
@@ -31,6 +31,7 @@ export async function GET() {
     const results = { ghl: null as unknown, crazytel: null as unknown };
     for (const integration of integrations ?? []) {
       const provider = integration.provider as IntegrationProvider;
+      if (provider === "gemini") continue;
       const settings = integration.settings && typeof integration.settings === "object" ? integration.settings as Record<string, unknown> : {};
       results[provider] = {
         enabled: integration.enabled,
@@ -40,8 +41,9 @@ export async function GET() {
         settings,
       };
     }
-    const { data: secretRows } = await createSupabaseServiceClient().from("company_integration_secrets")
+    const { data: secretRows, error: secretError } = await createSupabaseServiceClient().from("company_integration_secrets")
       .select("provider").eq("company_id", session.companyId);
+    if (secretError) return NextResponse.json({ error: "Company integration credentials could not be checked." }, { status: 503 });
     return NextResponse.json({
       integrations: results,
       hasCredentials: Object.fromEntries((secretRows ?? []).map((item) => [item.provider, true])),
@@ -72,6 +74,12 @@ export async function PATCH(request: Request) {
   if (Object.values(settings).some((value) => typeof value === "string" && value.length > 1000)) return NextResponse.json({ error: "An integration setting exceeds the allowed length." }, { status: 400 });
 
   try {
+    if (body.provider === "gemini") {
+      const apiKey = credentials.apiKey?.trim() ?? "";
+      if (!apiKey || apiKey.length > 500) return NextResponse.json({ error: "Enter a valid Gemini API key of up to 500 characters." }, { status: 400 });
+      await saveCompanyCredentials(session.companyId, "gemini", { apiKey });
+      return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (Object.values(credentials).some((value) => value.trim())) await saveCompanyCredentials(session.companyId, body.provider, credentials);
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.from("company_integrations").upsert({

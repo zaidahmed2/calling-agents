@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { env } from "@/lib/env";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
-export type IntegrationProvider = "ghl" | "crazytel";
+export type IntegrationProvider = "ghl" | "crazytel" | "gemini";
 export type IntegrationConfig = {
   enabled: boolean;
   connection_status: "not_configured" | "connected" | "failed" | "disabled";

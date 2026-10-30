@@ -67,6 +67,7 @@
 .serviceIcon.supabase { color: #16835a; background: #e5f5ee; }
 .serviceIcon.ghl { color: var(--primary); background: var(--primary-soft); }
 .serviceIcon.crazytel { color: #cb6d1a; background: #fff1e4; }
+.serviceIcon.gemini { color: #315eb7; background: #edf2ff; }
 .serviceTitle { flex: 1; min-width: 0; }
 .serviceTitle h2 { margin: 0; font-size: 13px; }
 .serviceTitle p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }

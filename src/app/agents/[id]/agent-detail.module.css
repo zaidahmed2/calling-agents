@@ -33,6 +33,22 @@
 .metricCallbacks>i { color:#a8513a!important;background:#fff0e9!important }
 .panel { min-width:0;margin-bottom:14px;border:1px solid var(--border);border-radius:7px;background:#fff;box-shadow:var(--shadow-soft);overflow:hidden }
 .visibilityPanel { display:grid;gap:15px;margin:0 0 15px;padding:16px;border:1px solid var(--border);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft); }
+.voiceAlertForm { display:grid;gap:13px; }
+.voiceAlertForm>footer { display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid #eff1ed; }
+.voiceAlertForm>footer small { color:var(--text-faint);font-size:9px; }
+.visibilityPanel .voiceAlertForm>footer button { display:inline-flex;align-items:center;gap:6px;min-height:33px;padding:0 10px;border:1px solid #466d10;border-radius:5px;color:#fff;background:#466d10;font:inherit;font-size:10px;font-weight:750;cursor:pointer; }
+.visibilityPanel .voiceAlertForm>footer button:disabled { opacity:.55;cursor:wait; }
+.voiceAlertToggle { display:flex;align-items:center;gap:9px;color:var(--text);font-size:10px;cursor:pointer; }
+.voiceAlertToggle input { accent-color:#466d10; }
+.voiceAlertToggle span,.voiceAlertText { display:grid;gap:4px; }
+.voiceAlertToggle small,.voiceAlertText small { color:var(--text-faint);font-size:9px; }
+.voiceAlertText { color:var(--text-soft);font-size:10px;font-weight:700; }
+.voiceAlertText textarea { width:100%;padding:9px;border:1px solid var(--border);border-radius:5px;color:var(--text);font:inherit;font-size:11px;resize:vertical; }
+.voiceAlertPreview { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+.voiceAlertPreview button { display:inline-flex;align-items:center;gap:6px;min-height:31px;padding:0 10px;border:1px solid var(--border);border-radius:5px;color:var(--text-soft);background:#fff;font:inherit;font-size:10px;font-weight:700;cursor:pointer; }
+.voiceAlertPreview button:disabled { opacity:.55;cursor:wait; }
+.voiceAlertPreview .voiceAlertPlay { border-color:#466d10;color:#fff;background:#466d10; }
+.voiceAlertPreview audio { width:min(100%,260px);height:32px; }
 .visibilityPanel>header { display:flex;align-items:flex-start;gap:11px; }
 .visibilityPanel>header h2 { margin:4px 0;color:var(--text);font-size:13px; }
 .visibilityPanel>header p { margin:0;color:var(--text-faint);font-size:9px; }

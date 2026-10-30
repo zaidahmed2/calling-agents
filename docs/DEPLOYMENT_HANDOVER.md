@@ -40,6 +40,9 @@ Required names:
 1. Create or connect the Supabase project.
 2. Apply the versioned migrations under `supabase/migrations`.
    - Apply `20261029_000027_allow_shared_crazytel_trunks.sql` before assigning one Crazytel trunk to multiple agents.
+   - Apply `20261029_000028_agent_voice_alert.sql` before configuring agent Voice Alerts.
+   - Apply `20261030_000029_gemini_company_credentials.sql` before saving a company's Gemini key in Settings & Integrations.
+   - Each company must enter its own Gemini API key in Settings & Integrations. It is encrypted at rest using the server-side `INTEGRATION_ENCRYPTION_KEY` and never returned to the browser. Announcement text is sent to Google's Gemini service for speech generation; review Google's data-use and quota terms before enabling this feature.
 3. Enable Row Level Security on all sensitive tables.
 4. Keep the service-role key server-only; do not expose it to the browser.
 5. Verify the auth provider and app role mapping before production sign-in is enabled.

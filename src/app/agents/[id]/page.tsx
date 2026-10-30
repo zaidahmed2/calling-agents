@@ -11,6 +11,7 @@ import styles from "@/app/agents/[id]/agent-detail.module.css";
 import { createCompanyCrmClient } from "@/lib/company-database";
 import AgentContactAccess from "@/app/agents/[id]/agent-contact-access";
 import AgentCrazytelAssignment from "@/app/agents/[id]/agent-crazytel-assignment";
+import AgentVoiceAlert from "@/app/agents/[id]/agent-voice-alert";
 import { CallRecording } from "@/components/call-recording";
 
 export const dynamic = "force-dynamic";
@@ -151,6 +152,7 @@ export default async function AgentDetailPage({ params, searchParams }: { params
     {manualCallCount > 0 ? <div className={styles.notice}>This period includes {manualCallCount} agent-reported call record(s). Their duration is not provider-verified.</div> : null}
     <AgentCrazytelAssignment agentId={id} />
     <AgentContactAccess agentId={id} />
+    <AgentVoiceAlert agentId={id} />
 
     <section className={styles.panel}>
       <header className={styles.panelHeader}><div><span className={styles.sectionEyebrow}>01 / CALL HISTORY</span><h2>Calls and outcomes</h2></div><span className={styles.sectionCount}>{callCount} total records</span></header>

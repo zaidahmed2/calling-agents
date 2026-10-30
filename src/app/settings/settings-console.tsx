@@ -6,7 +6,7 @@ import { ArrowRight, Check, ChevronDown, Plus, RefreshCw, Save, Search, Trash2 }
 import styles from "@/app/settings/settings.module.css";
 import CrazytelTrunkManager from "@/app/settings/crazytel-trunk-manager";
 
-type Provider = "ghl" | "crazytel";
+type Provider = "ghl" | "crazytel" | "gemini";
 type IntegrationCheck = { name: string; state: "success" | "failure" | "blocked"; message: string };
 type ProviderSettings = { enabled: boolean; connectionStatus: string; lastError: string | null; settings: Record<string, unknown> };
 type ExternalField = { external_field_id: string; name: string; field_type: string | null; available: boolean };
@@ -142,6 +142,7 @@ export default function SettingsConsole() {
   const [data, setData] = useState<ConsoleData>({ integrations: { ghl: null, crazytel: null }, hasCredentials: {}, fields: [], mappings: [], syncRuns: [] });
   const [ghlKey, setGhlKey] = useState("");
   const [crazytelCredentials, setCrazytelCredentials] = useState({ apiKey: "", webrtcSipUri: "", webrtcPassword: "", turnUsername: "", turnPassword: "" });
+  const [geminiApiKey, setGeminiApiKey] = useState("");
   const [ghlSettings, setGhlSettings] = useState({ locationId: "", importEnabled: false, exportEnabled: false, exportUpdateExisting: false });
   const [crazytelSettings, setCrazytelSettings] = useState({ apiBaseUrl: "https://api.crazytel.io", websocketUrl: "wss://hybrid.sip.crazytel.net.au:8443", callerId: "", callerIdPassthroughEnabled: false });
   const [mappings, setMappings] = useState<Mapping[]>([]);
@@ -150,7 +151,7 @@ export default function SettingsConsole() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [testResults, setTestResults] = useState<Record<string, { state: string; message: string; checks?: IntegrationCheck[] }>>({});
-  const [activeDialog, setActiveDialog] = useState<"ghl-connect" | "ghl-fields" | "crazytel-connect" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"ghl-connect" | "ghl-fields" | "crazytel-connect" | "gemini-connect" | null>(null);
   async function load() {
     setLoading(true);
     setError("");
@@ -217,13 +218,16 @@ export default function SettingsConsole() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(provider === "ghl"
           ? { provider, enabled, credentials: { privateIntegrationKey: ghlKey }, settings: ghlSettings }
-          : { provider, enabled, credentials: crazytelCredentials, settings: crazytelSettings }),
+          : provider === "crazytel"
+            ? { provider, enabled, credentials: crazytelCredentials, settings: crazytelSettings }
+            : { provider, enabled, credentials: { apiKey: geminiApiKey } }),
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Integration settings could not be saved.");
-      setNotice(`${provider === "ghl" ? "GoHighLevel" : "Crazytel"} settings saved. Secret values are not returned to this page.`);
+      setNotice(`${provider === "ghl" ? "GoHighLevel" : provider === "crazytel" ? "Crazytel" : "Gemini"} settings saved. Secret values are not returned to this page.`);
       if (provider === "ghl") setGhlKey("");
-      else setCrazytelCredentials({ apiKey: "", webrtcSipUri: "", webrtcPassword: "", turnUsername: "", turnPassword: "" });
+      else if (provider === "crazytel") setCrazytelCredentials({ apiKey: "", webrtcSipUri: "", webrtcPassword: "", turnUsername: "", turnPassword: "" });
+      else setGeminiApiKey("");
       await load();
       return true;
     } catch (saveError) {
@@ -309,7 +313,7 @@ export default function SettingsConsole() {
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Integration could not be disconnected.");
-      setNotice(`${provider === "ghl" ? "GHL" : "Crazytel"} disconnected locally. Revoke the credential with the provider if required.`);
+      setNotice(`${provider === "ghl" ? "GHL" : provider === "crazytel" ? "Crazytel" : "Gemini"} disconnected locally. Revoke the credential with the provider if required.`);
       await load();
     } catch (disconnectError) {
       setError(disconnectError instanceof Error ? disconnectError.message : "Integration could not be disconnected.");
@@ -386,7 +390,7 @@ export default function SettingsConsole() {
     {error ? <p className={`${styles.testResult} ${styles.failure}`} role="alert">{error}</p> : null}
     {notice ? <p className={`${styles.testResult} ${styles.success}`} role="status">{notice}</p> : null}
     {loading ? <p className={styles.noTest}>Loading company settings...</p> : <>
-      <div className={styles.sectionHeading}><div><h2>Integrations</h2><p>Each provider is configured for this company. Synchronization is opt-in.</p></div><span>2 PROVIDERS</span></div>
+      <div className={styles.sectionHeading}><div><h2>Integrations</h2><p>Each provider is configured for this company. Synchronization is opt-in.</p></div><span>3 PROVIDERS</span></div>
       <div className={styles.integrationGrid}>
         <article className={styles.integrationCard}>
           <header className={styles.cardHeader}><div className={`${styles.serviceIcon} ${styles.ghl}`}>G</div><div className={styles.serviceTitle}><h2>GoHighLevel</h2><p>Optional contact import/export integration</p></div><span className={ghl.connectionStatus === "connected" ? styles.statusReady : styles.statusIncomplete}>{ghl.connectionStatus.replaceAll("_", " ")}</span></header>
@@ -490,6 +494,27 @@ export default function SettingsConsole() {
                 <p className={styles.mappingHint}>Find this in Crazytel MyAccount. This key loads your account&apos;s SIP trunks and verified caller IDs. It is not your SIP or WebRTC password.</p>
                 <p className={styles.mappingHint}>Next, under <strong>Hybrid SIP trunks and agent assignments</strong>, click <strong>Add trunk manually</strong>. You will enter the WebRTC SIP address, its separate one-time WebRTC password, verified caller ID, and Crazytel&apos;s PSTN dial format.</p>
                 <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void connectCrazytel()} disabled={busy !== ""}>{busy === "save-crazytel" || busy === "test-crazytel" ? "Connecting..." : data.hasCredentials.crazytel ? "Save & verify" : "Connect Crazytel"}</button><button type="button" className={styles.secondaryButton} onClick={() => void save("crazytel", true)} disabled={busy !== ""}><Save size={14} />Save without testing</button></div>
+              </div>
+            </section>
+          </div> : null}
+        </article>
+        <article className={styles.integrationCard}>
+          <header className={styles.cardHeader}><div className={`${styles.serviceIcon} ${styles.gemini}`}>G</div><div className={styles.serviceTitle}><h2>Gemini Voice Alerts</h2><p>Company-owned Gemini TTS credentials</p></div><span className={data.hasCredentials.gemini ? styles.statusReady : styles.statusIncomplete}>{data.hasCredentials.gemini ? "API key saved" : "Not configured"}</span></header>
+          <div className={styles.providerSummary}>
+            <p>{data.hasCredentials.gemini ? "This company’s Gemini key is encrypted at rest and used only to generate its agents’ Voice Alerts." : "Add a Gemini API key to use Voice Alert announcements for this company’s agents."}</p>
+            <p className={styles.mappingHint}>Keys are stored encrypted and never returned to the browser. Each company manages its own key.</p>
+            <div className={styles.actionRow}>
+              <button type="button" className={styles.secondaryButton} onClick={() => setActiveDialog("gemini-connect")}><Save size={14} />{data.hasCredentials.gemini ? "Update Gemini API key" : "Add Gemini API key"}</button>
+              {data.hasCredentials.gemini ? <button type="button" className={styles.secondaryButton} onClick={() => void disconnect("gemini")} disabled={busy !== ""}>Remove key</button> : null}
+            </div>
+          </div>
+          {activeDialog === "gemini-connect" ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveDialog(null); }}>
+            <section className={styles.settingsDialog} role="dialog" aria-modal="true" aria-labelledby="gemini-connect-title">
+              <header><div><span className={`${styles.serviceIcon} ${styles.gemini}`}>G</span><div><h2 id="gemini-connect-title">Configure Gemini Voice Alerts</h2><p>Enter the Gemini API key owned by this company.</p></div></div><button type="button" onClick={() => setActiveDialog(null)} aria-label="Close">×</button></header>
+              <div className={styles.formFields}>
+                <label>Gemini API key<input type="password" autoComplete="new-password" value={geminiApiKey} onChange={(event) => setGeminiApiKey(event.target.value)} placeholder={data.hasCredentials.gemini ? "Saved securely; enter a new key to replace" : "Paste Gemini API key"} /></label>
+                <p className={styles.mappingHint}>The key is encrypted before it is saved. Announcement text is sent to Google Gemini when generating voice audio.</p>
+                <div className={styles.actionRow}><button type="button" className={styles.testButton} onClick={() => void save("gemini", true)} disabled={busy !== "" || !geminiApiKey.trim()}><Save size={14} />{busy === "save-gemini" ? "Saving..." : "Save API key"}</button></div>
               </div>
             </section>
           </div> : null}

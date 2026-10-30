@@ -115,7 +115,7 @@ export async function PATCH(request: Request) {
       if (updateError.code === "23505") {
         console.error("Crazytel shared trunk assignment blocked by a database uniqueness constraint.", { code: updateError.code });
         return NextResponse.json({
-          error: "The app's database still rejects assigning this trunk to multiple agents (database error 23505). The migration query succeeded, so first confirm the app is connected to the same Supabase project where you ran it. If it is, check for another unique index on company_memberships.crazytel_trunk_id.",
+          error: "The database still has a unique constraint preventing agents from sharing this trunk or caller ID. Run the updated 20261029_000027_allow_shared_crazytel_trunks.sql in the app's Supabase project, then retry.",
         }, { status: 409 });
       }
       console.error("Crazytel trunk assignment update failed.", { code: updateError.code, message: updateError.message });
